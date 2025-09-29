@@ -27,7 +27,10 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "sqlmodel>=0.0.16,<0.0.17",
+  "dataclasses-json>=0.6,<1",
+  "gitpython>=3,<4",
+  "polars>=1,<2",
+  "PyYAML>=6,<7",
 ]
 
 [project.urls]
