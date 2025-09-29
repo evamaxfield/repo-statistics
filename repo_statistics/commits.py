@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
-from datetime import datetime
 from dataclasses import dataclass
-from dataclasses_json import DataClassJsonMixin
-
-from git import Repo
-import polars as pl
+from datetime import datetime
 from pathlib import Path
+
+import polars as pl
+from dataclasses_json import DataClassJsonMixin
+from git import Repo
 
 from .utils import get_file_type
 
@@ -71,13 +71,14 @@ class ParsedCommitsResult:
     per_file_commit_deltas: pl.DataFrame
     commit_summaries: pl.DataFrame
 
+
 def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     """
     Parse the commits in a Git repository to extract per-file commit deltas
     and per-commit summaries.
 
     Args:
-        repo: A string or Path to a repository,
+        repo_path: A string or Path to a repository,
             or a GitPython Repo object representing the repository.
 
     Returns:
@@ -141,7 +142,7 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
         # Process diffs
         for filename, file_stats in commit.stats.files.items():
             # Get the file type
-            filetype = get_file_type(Path(filename).name)   
+            filetype = get_file_type(Path(filename).name)
 
             # file_stats contains "insertions", "deletions", and "lines"
             additions = file_stats["insertions"]
@@ -180,9 +181,29 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
                 unknown_additions += additions
                 unknown_deletions += deletions
                 unknown_lines_changed += lines_changed
-            
+
             # Store per-file commit delta
-            per_file_commit_deltas.append(PerFileCommitDelta(
+            per_file_commit_deltas.append(
+                PerFileCommitDelta(
+                    authored_datetime=authored_datetime,
+                    committed_datetime=committed_datetime,
+                    commit_hash=commit_hash,
+                    commit_message=commit_message,
+                    committer_name=committer_name,
+                    committer_email=committer_email,
+                    author_name=author_name,
+                    author_email=author_email,
+                    filename=filename,
+                    filetype=filetype,
+                    additions=additions,
+                    deletions=deletions,
+                    lines_changed=lines_changed,
+                )
+            )
+
+        # Store per-commit summary
+        per_commit_summaries.append(
+            CommitSummary(
                 authored_datetime=authored_datetime,
                 committed_datetime=committed_datetime,
                 commit_hash=commit_hash,
@@ -191,50 +212,36 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
                 committer_email=committer_email,
                 author_name=author_name,
                 author_email=author_email,
-                filename=filename,
-                filetype=filetype,
-                additions=additions,
-                deletions=deletions,
-                lines_changed=lines_changed
-            ))
-        
-        # Store per-commit summary
-        per_commit_summaries.append(CommitSummary(
-            authored_datetime=authored_datetime,
-            committed_datetime=committed_datetime,
-            commit_hash=commit_hash,
-            commit_message=commit_message,
-            committer_name=committer_name,
-            committer_email=committer_email,
-            author_name=author_name,
-            author_email=author_email,
-            total_files_changed=total_files_changed,
-            total_additions=total_additions,
-            total_deletions=total_deletions,
-            total_lines_changed=total_lines_changed,
-            programming_files_changed=programming_files_changed,
-            programming_additions=programming_additions,
-            programming_deletions=programming_deletions,
-            programming_lines_changed=programming_lines_changed,
-            markup_files_changed=markup_files_changed,
-            markup_additions=markup_additions,
-            markup_deletions=markup_deletions,
-            markup_lines_changed=markup_lines_changed,
-            prose_files_changed=prose_files_changed,
-            prose_additions=prose_additions,
-            prose_deletions=prose_deletions,
-            prose_lines_changed=prose_lines_changed,
-            data_files_changed=data_files_changed,
-            data_additions=data_additions,
-            data_deletions=data_deletions,
-            data_lines_changed=data_lines_changed,
-            unknown_files_changed=unknown_files_changed,
-            unknown_additions=unknown_additions,
-            unknown_deletions=unknown_deletions,
-            unknown_lines_changed=unknown_lines_changed
-        ))
+                total_files_changed=total_files_changed,
+                total_additions=total_additions,
+                total_deletions=total_deletions,
+                total_lines_changed=total_lines_changed,
+                programming_files_changed=programming_files_changed,
+                programming_additions=programming_additions,
+                programming_deletions=programming_deletions,
+                programming_lines_changed=programming_lines_changed,
+                markup_files_changed=markup_files_changed,
+                markup_additions=markup_additions,
+                markup_deletions=markup_deletions,
+                markup_lines_changed=markup_lines_changed,
+                prose_files_changed=prose_files_changed,
+                prose_additions=prose_additions,
+                prose_deletions=prose_deletions,
+                prose_lines_changed=prose_lines_changed,
+                data_files_changed=data_files_changed,
+                data_additions=data_additions,
+                data_deletions=data_deletions,
+                data_lines_changed=data_lines_changed,
+                unknown_files_changed=unknown_files_changed,
+                unknown_additions=unknown_additions,
+                unknown_deletions=unknown_deletions,
+                unknown_lines_changed=unknown_lines_changed,
+            )
+        )
 
     return ParsedCommitsResult(
-        per_file_commit_deltas=pl.DataFrame([cd.to_dict() for cd in per_file_commit_deltas]),
+        per_file_commit_deltas=pl.DataFrame(
+            [cd.to_dict() for cd in per_file_commit_deltas]
+        ),
         commit_summaries=pl.DataFrame([cs.to_dict() for cs in per_commit_summaries]),
     )

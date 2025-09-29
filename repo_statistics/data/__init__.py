@@ -18,7 +18,7 @@ ADDITIONAL_FORMATS_YML = DATA_FILES_DIR / "additional-formats.yml"
 ###############################################################################
 
 
-def load_file_formats_dataframe() -> pl.DataFrame:
+def load_file_formats_dataframe() -> pl.DataFrame:  # noqa: C901
     """
     Read the GitHub Linguist languages YAML file into a Polars DataFrame.
 
