@@ -18,7 +18,7 @@ from .utils import parse_datetime, parse_timedelta, timedelta_to_string
 
 
 @dataclass
-class CommitPeriodResults(DataClassJsonMixin):
+class ChangePeriodResults(DataClassJsonMixin):
     period_span: str
     start_datetime: str
     end_datetime: str
@@ -43,9 +43,9 @@ def get_periods_changed(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "committed_datetime",
-) -> CommitPeriodResults:
+        "authored_datetime", "committed_datetime",
+    ] = "authored_datetime",
+) -> ChangePeriodResults:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
     if start_datetime is None:
@@ -107,12 +107,53 @@ def get_periods_changed(
         # Increment
         current_start_dt += td
 
-    return CommitPeriodResults(
+    return ChangePeriodResults(
         period_span=timedelta_to_string(td),
         start_datetime=start_datetime_dt.isoformat(),
         end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
         **results,
+    )
+
+
+@dataclass
+class ChangeSpanResults(DataClassJsonMixin):
+    did_change_spans: list[int]
+    did_not_change_spans: list[int]
+
+
+def get_change_spans(
+    periods_changed: list[int],
+) -> ChangeSpanResults:
+    # Iter over list of periods changed and count periods between changes
+    did_change_spans = []
+    did_not_change_spans = []
+    in_change_span = False
+    did_change_current_periods = 0
+    did_not_change_current_periods = 0
+    for period in periods_changed:
+        if not in_change_span and period == 0:
+            did_not_change_current_periods += 1
+        if not in_change_span and period == 1:
+            did_not_change_spans.append(did_not_change_current_periods)
+            did_not_change_current_periods = 0
+            in_change_span = True
+            did_change_current_periods += 1
+        if in_change_span and period == 0:
+            did_change_spans.append(did_change_current_periods)
+            did_change_current_periods = 0
+            in_change_span = False
+            did_not_change_current_periods += 1
+        if in_change_span and period == 1:
+            did_change_current_periods += 1
+
+    # Remove extra zero in either of the lists
+    did_change_spans = [span for span in did_change_spans if span != 0]
+    did_not_change_spans = [span for span in did_not_change_spans if span != 0]
+
+    return ChangeSpanResults(
+        did_change_spans=did_change_spans,
+        did_not_change_spans=did_not_change_spans,
     )
 
 
@@ -142,7 +183,7 @@ class TimeseriesMetrics(DataClassJsonMixin):
     unknown_changed_binary_entropy: float
     unknown_changed_binary_variation: float
     unknown_changed_binary_frac: float
-    # Lines changed metrics
+    # Lines changed count metrics
     total_lines_changed_count_entropy: float
     total_lines_changed_count_variation: float
     programming_lines_changed_count_entropy: float
@@ -155,13 +196,43 @@ class TimeseriesMetrics(DataClassJsonMixin):
     data_lines_changed_count_variation: float
     unknown_lines_changed_count_entropy: float
     unknown_lines_changed_count_variation: float
-    # # Commit span metrics
-    # median_commit_span: int
-    # mean_commit_span: float
-    # std_commit_span: float
-    # median_no_commit_span: int
-    # mean_no_commit_span: float
-    # std_no_commit_span: float
+    # Change span metrics
+    total_did_change_median_span: int
+    total_did_change_mean_span: float
+    total_did_change_std_span: float
+    total_did_not_change_median_span: int
+    total_did_not_change_mean_span: float
+    total_did_not_change_std_span: float
+    programming_did_change_median_span: int
+    programming_did_change_mean_span: float
+    programming_did_change_std_span: float
+    programming_did_not_change_median_span: int
+    programming_did_not_change_mean_span: float
+    programming_did_not_change_std_span: float
+    markup_did_change_median_span: int
+    markup_did_change_mean_span: float
+    markup_did_change_std_span: float
+    markup_did_not_change_median_span: int
+    markup_did_not_change_mean_span: float
+    markup_did_not_change_std_span: float
+    prose_did_change_median_span: int
+    prose_did_change_mean_span: float
+    prose_did_change_std_span: float
+    prose_did_not_change_median_span: int
+    prose_did_not_change_mean_span: float
+    prose_did_not_change_std_span: float
+    data_did_change_median_span: int
+    data_did_change_mean_span: float
+    data_did_change_std_span: float
+    data_did_not_change_median_span: int
+    data_did_not_change_mean_span: float
+    data_did_not_change_std_span: float
+    unknown_did_change_median_span: int
+    unknown_did_change_mean_span: float
+    unknown_did_change_std_span: float
+    unknown_did_not_change_median_span: int
+    unknown_did_not_change_mean_span: float
+    unknown_did_not_change_std_span: float
     # # Contributor metrics
     # stable_contributors_count: int
     # transient_contributors_count: int
@@ -178,7 +249,7 @@ def compute_timeseries_metrics(
     end_datetime: str | date | datetime | None = None,
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
-    ] = "committed_datetime",
+    ] = "authored_datetime",
 ) -> TimeseriesMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
@@ -211,10 +282,10 @@ def compute_timeseries_metrics(
 
     # Iter over all non-metadata items returned in periods_changed_results
     # Compute single metrics in-place of arrays
-    period_metrics = {}
-    for key, metadata_or_arr in periods_changed_results.to_dict().items():
+    period_and_span_metrics = {}
+    for period_key, metadata_or_arr in periods_changed_results.to_dict().items():
         # Ignore metadata fields
-        if key in (
+        if period_key in (
             "period_span",
             "start_datetime",
             "end_datetime",
@@ -224,18 +295,29 @@ def compute_timeseries_metrics(
 
         # All metadata should not be filtered out
         arr = metadata_or_arr
-        assert isinstance(arr, list)
+        assert isinstance(arr, list)        
 
         # Compute
-        period_metrics[f"{key}_entropy"] = _compute_entropy(arr)
-        period_metrics[f"{key}_variation"] = variation(arr)
-        if "binary" in key:
-            period_metrics[f"{key}_frac"] = _compute_frac(arr)
+        period_and_span_metrics[f"{period_key}_entropy"] = _compute_entropy(arr)
+        period_and_span_metrics[f"{period_key}_variation"] = variation(arr)
+        if "binary" in period_key:
+            period_and_span_metrics[f"{period_key}_frac"] = _compute_frac(arr)
+
+            # Get spans
+            span_results = get_change_spans(arr)
+            for span_reduction_func in [
+                np.median,
+                np.mean,
+                np.std,
+            ]:
+                # TODO: determine which file subset we are working on
+                # so that we can label things properly in the constructed metric
+                pass
 
     return TimeseriesMetrics(
         period_span=timedelta_to_string(td),
         start_datetime=start_datetime_dt.isoformat(),
         end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
-        **period_metrics,
+        **period_and_span_metrics,
     )
