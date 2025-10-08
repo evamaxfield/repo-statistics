@@ -11,6 +11,7 @@ from dataclasses_json import DataClassJsonMixin
 from scipy.stats import entropy, variation
 from tqdm import tqdm
 
+from . import constants
 from .utils import parse_datetime, parse_timedelta, timedelta_to_string
 
 ###############################################################################
@@ -22,18 +23,18 @@ class CommitPeriodResults(DataClassJsonMixin):
     start_datetime: str
     end_datetime: str
     datetime_column: str
-    periods_changed_binary: np.ndarray
-    periods_total_lines_changed_count: np.ndarray
-    periods_programming_files_changed_binary: np.ndarray
-    periods_programming_lines_changed_count: np.ndarray
-    periods_markup_files_changed_binary: np.ndarray
-    periods_markup_lines_changed_count: np.ndarray
-    periods_prose_files_changed_binary: np.ndarray
-    periods_prose_lines_changed_count: np.ndarray
-    periods_data_files_changed_binary: np.ndarray
-    periods_data_lines_changed_count: np.ndarray
-    periods_unknown_files_changed_binary: np.ndarray
-    periods_unknown_lines_changed_count: np.ndarray
+    total_changed_binary: list[int]
+    total_lines_changed_count: list[int]
+    programming_changed_binary: list[int]
+    programming_lines_changed_count: list[int]
+    markup_changed_binary: list[int]
+    markup_lines_changed_count: list[int]
+    prose_changed_binary: list[int]
+    prose_lines_changed_count: list[int]
+    data_changed_binary: list[int]
+    data_lines_changed_count: list[int]
+    unknown_changed_binary: list[int]
+    unknown_lines_changed_count: list[int]
 
 
 def get_periods_changed(
@@ -61,136 +62,57 @@ def get_periods_changed(
     n_tds = math.ceil(change_duration / td)
 
     # Iterate over periods and record binary or lines changed count
-    periods_changed_binary: list[int] = []
-    periods_total_lines_changed_count: list[int] = []
-    periods_programming_files_changed_binary: list[int] = []
-    periods_programming_lines_changed_count: list[int] = []
-    periods_markup_files_changed_binary: list[int] = []
-    periods_markup_lines_changed_count: list[int] = []
-    periods_prose_files_changed_binary: list[int] = []
-    periods_prose_lines_changed_count: list[int] = []
-    periods_data_files_changed_binary: list[int] = []
-    periods_data_lines_changed_count: list[int] = []
-    periods_unknown_files_changed_binary: list[int] = []
-    periods_unknown_lines_changed_count: list[int] = []
-    current_process_date = start_datetime_dt
+    current_start_dt = start_datetime_dt
+    results: dict[str, list[int]] = {}
     for _ in tqdm(range(n_tds), desc="Processing change periods"):
         # Get the subset of commits in this period
         commit_subset = commits_df.filter(
             pl.col(datetime_col).is_between(
-                current_process_date,
-                current_process_date + td,
+                current_start_dt,
+                current_start_dt + td,
                 closed="left",
             )
         )
 
         # Update changes (binary and lines) for this period
-        if len(commit_subset) > 0:
-            periods_changed_binary.append(1)
-            periods_total_lines_changed_count.append(
-                commit_subset["total_lines_changed"].sum(),
-            )
-
-        else:
-            periods_changed_binary.append(0)
-            periods_total_lines_changed_count.append(0)
-
         def _get_binary_and_count_from_file_subset(
-            commit_subset: pl.DataFrame,
-            file_subset: str,
+            commit_subset: pl.DataFrame, file_subset: str
         ) -> tuple[int, int]:
+            lines_changed_col = f"{file_subset}_lines_changed"
             return (
-                len(commit_subset.filter(pl.col(f"{file_subset}_files_changed") > 0)),
-                commit_subset[f"{file_subset}_lines_changed"].sum(),
+                int(len(commit_subset.filter(pl.col(lines_changed_col) > 0)) > 0),
+                commit_subset[lines_changed_col].sum(),
             )
 
-        # Handle "programming files"
-        (
-            programming_files_changed_binary,
-            programming_lines_changed_count,
-        ) = _get_binary_and_count_from_file_subset(
-            commit_subset,
-            "programming",
-        )
-        periods_programming_files_changed_binary.append(
-            programming_files_changed_binary
-        )
-        periods_programming_lines_changed_count.append(programming_lines_changed_count)
+        # Iter over each file subset
+        for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
+            # Process period
+            binary, count = _get_binary_and_count_from_file_subset(
+                commit_subset,
+                file_subset,
+            )
 
-        # Handle "markup files"
-        (
-            markup_files_changed_binary,
-            markup_lines_changed_count,
-        ) = _get_binary_and_count_from_file_subset(
-            commit_subset,
-            "markup",
-        )
-        periods_markup_files_changed_binary.append(markup_files_changed_binary)
-        periods_markup_lines_changed_count.append(markup_lines_changed_count)
+            # Check if list already exists at key
+            changed_binary_key = f"{file_subset}_changed_binary"
+            lines_changed_count_key = f"{file_subset}_lines_changed_count"
+            if changed_binary_key not in results:
+                results[changed_binary_key] = []
+            if lines_changed_count_key not in results:
+                results[lines_changed_count_key] = []
 
-        # Handle "prose files"
-        (
-            prose_files_changed_binary,
-            prose_lines_changed_count,
-        ) = _get_binary_and_count_from_file_subset(
-            commit_subset,
-            "prose",
-        )
-        periods_prose_files_changed_binary.append(prose_files_changed_binary)
-        periods_prose_lines_changed_count.append(prose_lines_changed_count)
+            # Append to the lists
+            results[changed_binary_key].append(binary)
+            results[lines_changed_count_key].append(count)
 
-        # Handle "data files"
-        (
-            data_files_changed_binary,
-            data_lines_changed_count,
-        ) = _get_binary_and_count_from_file_subset(
-            commit_subset,
-            "data",
-        )
-        periods_data_files_changed_binary.append(data_files_changed_binary)
-        periods_data_lines_changed_count.append(data_lines_changed_count)
-
-        # Handle "unknown files"
-        (
-            unknown_files_changed_binary,
-            unknown_lines_changed_count,
-        ) = _get_binary_and_count_from_file_subset(
-            commit_subset,
-            "unknown",
-        )
-        periods_unknown_files_changed_binary.append(unknown_files_changed_binary)
-        periods_unknown_lines_changed_count.append(unknown_lines_changed_count)
-
-        # Increment process date
-        current_process_date += td
+        # Increment
+        current_start_dt += td
 
     return CommitPeriodResults(
         period_span=timedelta_to_string(td),
         start_datetime=start_datetime_dt.isoformat(),
         end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
-        periods_changed_binary=np.array(periods_changed_binary),
-        periods_total_lines_changed_count=np.array(periods_total_lines_changed_count),
-        periods_programming_files_changed_binary=np.array(
-            periods_programming_files_changed_binary
-        ),
-        periods_programming_lines_changed_count=np.array(
-            periods_programming_lines_changed_count
-        ),
-        periods_markup_files_changed_binary=np.array(
-            periods_markup_files_changed_binary
-        ),
-        periods_markup_lines_changed_count=np.array(periods_markup_lines_changed_count),
-        periods_prose_files_changed_binary=np.array(periods_prose_files_changed_binary),
-        periods_prose_lines_changed_count=np.array(periods_prose_lines_changed_count),
-        periods_data_files_changed_binary=np.array(periods_data_files_changed_binary),
-        periods_data_lines_changed_count=np.array(periods_data_lines_changed_count),
-        periods_unknown_files_changed_binary=np.array(
-            periods_unknown_files_changed_binary
-        ),
-        periods_unknown_lines_changed_count=np.array(
-            periods_unknown_lines_changed_count
-        ),
+        **results,
     )
 
 
@@ -202,37 +124,37 @@ class TimeseriesMetrics(DataClassJsonMixin):
     end_datetime: str
     datetime_column: str
     # Change existance metrics
-    changed_entropy: float
-    changed_variation: float
-    changed_frac: float
-    programming_files_changed_entropy: float
-    programming_files_changed_variation: float
-    programming_files_changed_frac: float
-    markup_files_changed_entropy: float
-    markup_files_changed_variation: float
-    markup_files_changed_frac: float
-    prose_files_changed_entropy: float
-    prose_files_changed_variation: float
-    prose_files_changed_frac: float
-    data_files_changed_entropy: float
-    data_files_changed_variation: float
-    data_files_changed_frac: float
-    unknown_files_changed_entropy: float
-    unknown_files_changed_variation: float
-    unknown_files_changed_frac: float
+    total_changed_binary_entropy: float
+    total_changed_binary_variation: float
+    total_changed_binary_frac: float
+    programming_changed_binary_entropy: float
+    programming_changed_binary_variation: float
+    programming_changed_binary_frac: float
+    markup_changed_binary_entropy: float
+    markup_changed_binary_variation: float
+    markup_changed_binary_frac: float
+    prose_changed_binary_entropy: float
+    prose_changed_binary_variation: float
+    prose_changed_binary_frac: float
+    data_changed_binary_entropy: float
+    data_changed_binary_variation: float
+    data_changed_binary_frac: float
+    unknown_changed_binary_entropy: float
+    unknown_changed_binary_variation: float
+    unknown_changed_binary_frac: float
     # Lines changed metrics
-    total_lines_changed_entropy: float
-    total_lines_changed_variation: float
-    programming_lines_changed_entropy: float
-    programming_lines_changed_variation: float
-    markup_lines_changed_entropy: float
-    markup_lines_changed_variation: float
-    prose_lines_changed_entropy: float
-    prose_lines_changed_variation: float
-    data_lines_changed_entropy: float
-    data_lines_changed_variation: float
-    unknown_lines_changed_entropy: float
-    unknown_lines_changed_variation: float
+    total_lines_changed_count_entropy: float
+    total_lines_changed_count_variation: float
+    programming_lines_changed_count_entropy: float
+    programming_lines_changed_count_variation: float
+    markup_lines_changed_count_entropy: float
+    markup_lines_changed_count_variation: float
+    prose_lines_changed_count_entropy: float
+    prose_lines_changed_count_variation: float
+    data_lines_changed_count_entropy: float
+    data_lines_changed_count_variation: float
+    unknown_lines_changed_count_entropy: float
+    unknown_lines_changed_count_variation: float
     # # Commit span metrics
     # median_commit_span: int
     # mean_commit_span: float
@@ -278,107 +200,42 @@ def compute_timeseries_metrics(
         datetime_col=datetime_col,
     )
 
-    def _compute_entropy(arr: np.ndarray) -> float:
+    def _compute_entropy(arr: list[int]) -> float:
         return entropy(
             arr / np.sum(arr),
             base=2,
         )
 
-    def _compute_frac(arr: np.ndarray) -> float:
+    def _compute_frac(arr: list[int]) -> float:
         return np.sum(arr) / len(arr)
 
+    # Iter over all non-metadata items returned in periods_changed_results
+    # Compute single metrics in-place of arrays
+    period_metrics = {}
+    for key, metadata_or_arr in periods_changed_results.to_dict().items():
+        # Ignore metadata fields
+        if key in (
+            "period_span",
+            "start_datetime",
+            "end_datetime",
+            "datetime_column",
+        ):
+            continue
+
+        # All metadata should not be filtered out
+        arr = metadata_or_arr
+        assert isinstance(arr, list)
+
+        # Compute
+        period_metrics[f"{key}_entropy"] = _compute_entropy(arr)
+        period_metrics[f"{key}_variation"] = variation(arr)
+        if "binary" in key:
+            period_metrics[f"{key}_frac"] = _compute_frac(arr)
+
     return TimeseriesMetrics(
-        # Metadata
         period_span=timedelta_to_string(td),
         start_datetime=start_datetime_dt.isoformat(),
         end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
-        # Change existance metrics
-        changed_entropy=_compute_entropy(
-            periods_changed_results.periods_changed_binary
-        ),
-        changed_variation=variation(periods_changed_results.periods_changed_binary),
-        changed_frac=_compute_frac(periods_changed_results.periods_changed_binary),
-        programming_files_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_programming_files_changed_binary
-        ),
-        programming_files_changed_variation=variation(
-            periods_changed_results.periods_programming_files_changed_binary
-        ),
-        programming_files_changed_frac=_compute_frac(
-            periods_changed_results.periods_programming_files_changed_binary
-        ),
-        markup_files_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_markup_files_changed_binary
-        ),
-        markup_files_changed_variation=variation(
-            periods_changed_results.periods_markup_files_changed_binary
-        ),
-        markup_files_changed_frac=_compute_frac(
-            periods_changed_results.periods_markup_files_changed_binary
-        ),
-        prose_files_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_prose_files_changed_binary
-        ),
-        prose_files_changed_variation=variation(
-            periods_changed_results.periods_prose_files_changed_binary
-        ),
-        prose_files_changed_frac=_compute_frac(
-            periods_changed_results.periods_prose_files_changed_binary
-        ),
-        data_files_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_data_files_changed_binary
-        ),
-        data_files_changed_variation=variation(
-            periods_changed_results.periods_data_files_changed_binary
-        ),
-        data_files_changed_frac=_compute_frac(
-            periods_changed_results.periods_data_files_changed_binary
-        ),
-        unknown_files_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_unknown_files_changed_binary
-        ),
-        unknown_files_changed_variation=variation(
-            periods_changed_results.periods_unknown_files_changed_binary
-        ),
-        unknown_files_changed_frac=_compute_frac(
-            periods_changed_results.periods_unknown_files_changed_binary
-        ),
-        # Lines changed metrics
-        total_lines_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_total_lines_changed_count
-        ),
-        total_lines_changed_variation=variation(
-            periods_changed_results.periods_total_lines_changed_count
-        ),
-        programming_lines_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_programming_lines_changed_count
-        ),
-        programming_lines_changed_variation=variation(
-            periods_changed_results.periods_programming_lines_changed_count
-        ),
-        markup_lines_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_markup_lines_changed_count
-        ),
-        markup_lines_changed_variation=variation(
-            periods_changed_results.periods_markup_lines_changed_count
-        ),
-        prose_lines_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_programming_lines_changed_count
-        ),
-        prose_lines_changed_variation=variation(
-            periods_changed_results.periods_programming_lines_changed_count
-        ),
-        data_lines_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_data_lines_changed_count
-        ),
-        data_lines_changed_variation=variation(
-            periods_changed_results.periods_data_lines_changed_count
-        ),
-        unknown_lines_changed_entropy=_compute_entropy(
-            periods_changed_results.periods_unknown_lines_changed_count
-        ),
-        unknown_lines_changed_variation=variation(
-            periods_changed_results.periods_unknown_lines_changed_count
-        ),
+        **period_metrics,
     )

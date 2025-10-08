@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
+from enum import Enum
 
-class FileTypes:
+
+class FileTypes(str, Enum):
     programming = "programming"
     markup = "markup"
     prose = "prose"

@@ -31,7 +31,7 @@ def get_linguist_file_type(fp: str | Path) -> str:
     extension = Path(fp).suffix.lower()
     matched = FILE_FORMATS_TO_DTYPE_DF.filter(pl.col("extension") == extension)
     if matched.is_empty():
-        return constants.FileTypes.unknown
+        return constants.FileTypes.unknown.value
 
     matched_types = matched["type"].unique()
 
@@ -42,16 +42,11 @@ def get_linguist_file_type(fp: str | Path) -> str:
     # Check if multiple types matched;
     # default to priority order: "prose", "data", "markup", "programming", "unknown"
     if len(matched_types) > 1:
-        for dtype in [
-            constants.FileTypes.prose,
-            constants.FileTypes.data,
-            constants.FileTypes.markup,
-            constants.FileTypes.programming,
-        ]:
-            if dtype in matched_types:
-                return dtype
+        for dtype in constants.FileTypes:
+            if dtype.value in matched_types:
+                return dtype.value
 
-    return constants.FileTypes.unknown
+    return constants.FileTypes.unknown.value
 
 
 ###############################################################################
