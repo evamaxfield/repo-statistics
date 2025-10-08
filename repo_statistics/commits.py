@@ -8,7 +8,7 @@ import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
-from .utils import get_file_type
+from .utils import get_linguist_file_type
 
 ###############################################################################
 
@@ -142,7 +142,7 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
         # Process diffs
         for filename, file_stats in commit.stats.files.items():
             # Get the file type
-            filetype = get_file_type(Path(filename).name)
+            filetype = get_linguist_file_type(Path(filename).name)
 
             # file_stats contains "insertions", "deletions", and "lines"
             additions = file_stats["insertions"]
