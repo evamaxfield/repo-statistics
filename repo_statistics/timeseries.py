@@ -43,7 +43,8 @@ def get_periods_changed(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     datetime_col: Literal[
-        "authored_datetime", "committed_datetime",
+        "authored_datetime",
+        "committed_datetime",
     ] = "authored_datetime",
 ) -> ChangePeriodResults:
     # Parse period span and datetimes
@@ -295,7 +296,7 @@ def compute_timeseries_metrics(
 
         # All metadata should not be filtered out
         arr = metadata_or_arr
-        assert isinstance(arr, list)        
+        assert isinstance(arr, list)
 
         # Compute
         period_and_span_metrics[f"{period_key}_entropy"] = _compute_entropy(arr)
