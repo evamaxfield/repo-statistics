@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Literal
-import math
 
-from dataclasses_json import DataClassJsonMixin
 import numpy as np
 import polars as pl
+from dataclasses_json import DataClassJsonMixin
 from scipy.stats import entropy, variation
 from tqdm import tqdm
 
-from .utils import parse_timedelta, timedelta_to_string, parse_datetime
+from .utils import parse_datetime, parse_timedelta, timedelta_to_string
 
 ###############################################################################
 
@@ -41,16 +41,18 @@ def get_periods_changed(
     period_span: str | float | timedelta,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "committed_datetime",
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "committed_datetime",
 ) -> CommitPeriodResults:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
     if start_datetime is None:
-        start_datetime_dt = commits_df[datetime_col].min()
+        start_datetime_dt: datetime = commits_df[datetime_col].min()
     else:
         start_datetime_dt = parse_datetime(start_datetime)
     if end_datetime is None:
-        end_datetime_dt = commits_df[datetime_col].max()
+        end_datetime_dt: datetime = commits_df[datetime_col].max()
     else:
         end_datetime_dt = parse_datetime(end_datetime)
 
@@ -110,9 +112,10 @@ def get_periods_changed(
             commit_subset,
             "programming",
         )
-        periods_programming_files_changed_binary.append(programming_files_changed_binary)
+        periods_programming_files_changed_binary.append(
+            programming_files_changed_binary
+        )
         periods_programming_lines_changed_count.append(programming_lines_changed_count)
-
 
         # Handle "markup files"
         (
@@ -163,21 +166,31 @@ def get_periods_changed(
 
     return CommitPeriodResults(
         period_span=timedelta_to_string(td),
-        start_datetime=start_datetime.isoformat(),
-        end_datetime=end_datetime.isoformat(),
+        start_datetime=start_datetime_dt.isoformat(),
+        end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
         periods_changed_binary=np.array(periods_changed_binary),
         periods_total_lines_changed_count=np.array(periods_total_lines_changed_count),
-        periods_programming_files_changed_binary=np.array(periods_programming_files_changed_binary),
-        periods_programming_lines_changed_count=np.array(periods_programming_lines_changed_count),
-        periods_markup_files_changed_binary=np.array(periods_markup_files_changed_binary),
+        periods_programming_files_changed_binary=np.array(
+            periods_programming_files_changed_binary
+        ),
+        periods_programming_lines_changed_count=np.array(
+            periods_programming_lines_changed_count
+        ),
+        periods_markup_files_changed_binary=np.array(
+            periods_markup_files_changed_binary
+        ),
         periods_markup_lines_changed_count=np.array(periods_markup_lines_changed_count),
         periods_prose_files_changed_binary=np.array(periods_prose_files_changed_binary),
         periods_prose_lines_changed_count=np.array(periods_prose_lines_changed_count),
         periods_data_files_changed_binary=np.array(periods_data_files_changed_binary),
         periods_data_lines_changed_count=np.array(periods_data_lines_changed_count),
-        periods_unknown_files_changed_binary=np.array(periods_unknown_files_changed_binary),
-        periods_unknown_lines_changed_count=np.array(periods_unknown_lines_changed_count),
+        periods_unknown_files_changed_binary=np.array(
+            periods_unknown_files_changed_binary
+        ),
+        periods_unknown_lines_changed_count=np.array(
+            periods_unknown_lines_changed_count
+        ),
     )
 
 
@@ -241,7 +254,9 @@ def compute_timeseries_metrics(
     period_span: str | float | timedelta,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "committed_datetime",
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "committed_datetime",
 ) -> TimeseriesMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
@@ -263,56 +278,107 @@ def compute_timeseries_metrics(
         datetime_col=datetime_col,
     )
 
-    def _compute_entropy(
-        arr: np.ndarray
-    ) -> float:
+    def _compute_entropy(arr: np.ndarray) -> float:
         return entropy(
             arr / np.sum(arr),
             base=2,
         )
-    
-    def _compute_frac(
-        arr: np.ndarray
-    ) -> float:
+
+    def _compute_frac(arr: np.ndarray) -> float:
         return np.sum(arr) / len(arr)
 
     return TimeseriesMetrics(
         # Metadata
         period_span=timedelta_to_string(td),
-        start_datetime=start_datetime.isoformat(),
-        end_datetime=end_datetime.isoformat(),
+        start_datetime=start_datetime_dt.isoformat(),
+        end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
         # Change existance metrics
-        changed_entropy=_compute_entropy(periods_changed_results.periods_changed_binary),
+        changed_entropy=_compute_entropy(
+            periods_changed_results.periods_changed_binary
+        ),
         changed_variation=variation(periods_changed_results.periods_changed_binary),
         changed_frac=_compute_frac(periods_changed_results.periods_changed_binary),
-        programming_files_changed_entropy=_compute_entropy(periods_changed_results.periods_programming_files_changed_binary),
-        programming_files_changed_variation=variation(periods_changed_results.periods_programming_files_changed_binary),
-        programming_files_changed_frac=_compute_frac(periods_changed_results.periods_programming_files_changed_binary),
-        markup_files_changed_entropy=_compute_entropy(periods_changed_results.periods_markup_files_changed_binary),
-        markup_files_changed_variation=variation(periods_changed_results.periods_markup_files_changed_binary),
-        markup_files_changed_frac=_compute_frac(periods_changed_results.periods_markup_files_changed_binary),
-        prose_files_changed_entropy=_compute_entropy(periods_changed_results.periods_prose_files_changed_binary),
-        prose_files_changed_variation=variation(periods_changed_results.periods_prose_files_changed_binary),
-        prose_files_changed_frac=_compute_frac(periods_changed_results.periods_prose_files_changed_binary),
-        data_files_changed_entropy=_compute_entropy(periods_changed_results.periods_data_files_changed_binary),
-        data_files_changed_variation=variation(periods_changed_results.periods_data_files_changed_binary),
-        data_files_changed_frac=_compute_frac(periods_changed_results.periods_data_files_changed_binary),
-        unknown_files_changed_entropy=_compute_entropy(periods_changed_results.periods_unknown_files_changed_binary),
-        unknown_files_changed_variation=variation(periods_changed_results.periods_unknown_files_changed_binary),
-        unknown_files_changed_frac=_compute_frac(periods_changed_results.periods_unknown_files_changed_binary),
+        programming_files_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_programming_files_changed_binary
+        ),
+        programming_files_changed_variation=variation(
+            periods_changed_results.periods_programming_files_changed_binary
+        ),
+        programming_files_changed_frac=_compute_frac(
+            periods_changed_results.periods_programming_files_changed_binary
+        ),
+        markup_files_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_markup_files_changed_binary
+        ),
+        markup_files_changed_variation=variation(
+            periods_changed_results.periods_markup_files_changed_binary
+        ),
+        markup_files_changed_frac=_compute_frac(
+            periods_changed_results.periods_markup_files_changed_binary
+        ),
+        prose_files_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_prose_files_changed_binary
+        ),
+        prose_files_changed_variation=variation(
+            periods_changed_results.periods_prose_files_changed_binary
+        ),
+        prose_files_changed_frac=_compute_frac(
+            periods_changed_results.periods_prose_files_changed_binary
+        ),
+        data_files_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_data_files_changed_binary
+        ),
+        data_files_changed_variation=variation(
+            periods_changed_results.periods_data_files_changed_binary
+        ),
+        data_files_changed_frac=_compute_frac(
+            periods_changed_results.periods_data_files_changed_binary
+        ),
+        unknown_files_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_unknown_files_changed_binary
+        ),
+        unknown_files_changed_variation=variation(
+            periods_changed_results.periods_unknown_files_changed_binary
+        ),
+        unknown_files_changed_frac=_compute_frac(
+            periods_changed_results.periods_unknown_files_changed_binary
+        ),
         # Lines changed metrics
-        total_lines_changed_entropy=_compute_entropy(periods_changed_results.periods_total_lines_changed_count),
-        total_lines_changed_variation=variation(periods_changed_results.periods_total_lines_changed_count),
-        programming_lines_changed_entropy=_compute_entropy(periods_changed_results.periods_programming_lines_changed_count),
-        programming_lines_changed_variation=variation(periods_changed_results.periods_programming_lines_changed_count),
-        markup_lines_changed_entropy=_compute_entropy(periods_changed_results.periods_markup_lines_changed_count),
-        markup_lines_changed_variation=variation(periods_changed_results.periods_markup_lines_changed_count),
-        prose_lines_changed_entropy=_compute_entropy(periods_changed_results.periods_programming_lines_changed_count),
-        prose_lines_changed_variation=variation(periods_changed_results.periods_programming_lines_changed_count),
-        data_lines_changed_entropy=_compute_entropy(periods_changed_results.periods_data_lines_changed_count),
-        data_lines_changed_variation=variation(periods_changed_results.periods_data_lines_changed_count),
-        unknown_lines_changed_entropy=_compute_entropy(periods_changed_results.periods_unknown_lines_changed_count),
-        unknown_lines_changed_variation=variation(periods_changed_results.periods_unknown_lines_changed_count),
+        total_lines_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_total_lines_changed_count
+        ),
+        total_lines_changed_variation=variation(
+            periods_changed_results.periods_total_lines_changed_count
+        ),
+        programming_lines_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_programming_lines_changed_count
+        ),
+        programming_lines_changed_variation=variation(
+            periods_changed_results.periods_programming_lines_changed_count
+        ),
+        markup_lines_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_markup_lines_changed_count
+        ),
+        markup_lines_changed_variation=variation(
+            periods_changed_results.periods_markup_lines_changed_count
+        ),
+        prose_lines_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_programming_lines_changed_count
+        ),
+        prose_lines_changed_variation=variation(
+            periods_changed_results.periods_programming_lines_changed_count
+        ),
+        data_lines_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_data_lines_changed_count
+        ),
+        data_lines_changed_variation=variation(
+            periods_changed_results.periods_data_lines_changed_count
+        ),
+        unknown_lines_changed_entropy=_compute_entropy(
+            periods_changed_results.periods_unknown_lines_changed_count
+        ),
+        unknown_lines_changed_variation=variation(
+            periods_changed_results.periods_unknown_lines_changed_count
+        ),
     )
-    

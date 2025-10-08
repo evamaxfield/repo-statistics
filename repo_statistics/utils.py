@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-from functools import lru_cache
-from pathlib import Path
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from numbers import Number
+from pathlib import Path
 from typing import Literal
 
 import polars as pl
@@ -53,6 +53,7 @@ def get_linguist_file_type(fp: str | Path) -> str:
 
     return constants.FileTypes.unknown
 
+
 ###############################################################################
 
 TIMEDELTA_SIZES_SECONDS = {
@@ -77,11 +78,14 @@ TIMEDELTA_SIZES_SECONDS_2 = {
     "day": 60 * 60 * 24,
     "week": 7 * 60 * 60 * 24,
     "year": 365 * 60 * 60 * 24,
-    
 }
-TIMEDELTA_SIZES_SECONDS_2.update({k + "s": v for k, v in TIMEDELTA_SIZES_SECONDS_2.items()})
+TIMEDELTA_SIZES_SECONDS_2.update(
+    {k + "s": v for k, v in TIMEDELTA_SIZES_SECONDS_2.items()}
+)
 TIMEDELTA_SIZES_SECONDS.update(TIMEDELTA_SIZES_SECONDS_2)
-TIMEDELTA_SIZES_SECONDS.update({k.upper(): v for k, v in TIMEDELTA_SIZES_SECONDS.items()})
+TIMEDELTA_SIZES_SECONDS.update(
+    {k.upper(): v for k, v in TIMEDELTA_SIZES_SECONDS.items()}
+)
 
 # Create the inversions of these as well
 TIMEDELTA_SIZES_SECONDS_INV = {v: k for k, v in TIMEDELTA_SIZES_SECONDS_2.items()}
@@ -151,7 +155,9 @@ def parse_timedelta(  # noqa: C901
         multiplier = TIMEDELTA_SIZES_SECONDS[suffix.lower()]
     except KeyError:
         valid_units = ", ".join(TIMEDELTA_SIZES_SECONDS.keys())
-        raise KeyError(f"Invalid time unit: {suffix}. Valid units are: {valid_units}") from None
+        raise KeyError(
+            f"Invalid time unit: {suffix}. Valid units are: {valid_units}"
+        ) from None
 
     result = n * multiplier
     if int(result) == result:
@@ -200,25 +206,24 @@ def timedelta_to_string(
     total_seconds = int(td.total_seconds())
     if total_seconds == 0:
         return "0 seconds"
-    
+
     # Get sorted units by size in seconds
     sorted_units = sorted(TIMEDELTA_SIZES_SECONDS_INV.keys(), reverse=True)
-    
+
     # Find the largest fitting unit
     for unit_size in sorted_units:
         if total_seconds >= unit_size and total_seconds % unit_size == 0:
             unit_name = TIMEDELTA_SIZES_SECONDS_INV[unit_size]
             count = total_seconds // unit_size
             if count == 1:
-                unit_name = unit_name.rstrip('s')  # Singular form
+                unit_name = unit_name.rstrip("s")  # Singular form
             return f"{count} {unit_name}"
 
     # Fallback to seconds if no larger unit fits
     return f"{total_seconds} seconds"
 
-def parse_datetime(
-    s: str | datetime
-) -> datetime:
+
+def parse_datetime(s: str | date | datetime) -> datetime:
     """Parse a datetime string to a datetime object.
 
     Parameters
@@ -244,6 +249,8 @@ def parse_datetime(
     """
     if isinstance(s, datetime):
         return s
+    if isinstance(s, date):
+        return datetime(s.year, s.month, s.day)
     if isinstance(s, str):
         try:
             return datetime.fromisoformat(s)
@@ -252,9 +259,7 @@ def parse_datetime(
     raise TypeError(f"Input must be a str or datetime, got {type(s)}")
 
 
-def parse_date(
-    s: str | datetime | date
-) -> date:
+def parse_date(s: str | datetime | date) -> date:
     """Parse a date string to a date object.
 
     Parameters
