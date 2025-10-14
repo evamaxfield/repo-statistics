@@ -243,6 +243,80 @@ class TimeseriesMetrics(DataClassJsonMixin):
     # normalized_mean_span: float
 
 
+def _compute_entropy(arr: list[int]) -> float:
+    return entropy(
+        arr / np.sum(arr),
+        base=2,
+    )
+
+
+def _compute_frac(arr: list[int]) -> float:
+    return np.sum(arr) / len(arr)
+
+
+def _compute_metrics_from_periods_change_results(
+    periods_changed_results: ChangePeriodResults,
+) -> dict[str, int | float]:
+    # Iter over all non-metadata items returned in periods_changed_results
+    # Compute single metrics in-place of arrays
+    period_and_span_metrics: dict[str, int | float] = {}
+    for period_key, metadata_or_arr in periods_changed_results.to_dict().items():
+        # Ignore metadata fields
+        if period_key in (
+            "period_span",
+            "start_datetime",
+            "end_datetime",
+            "datetime_column",
+        ):
+            continue
+
+        # All metadata should not be filtered out
+        arr = metadata_or_arr
+        assert isinstance(arr, list)
+
+        # Compute
+        period_and_span_metrics[f"{period_key}_entropy"] = _compute_entropy(arr)
+        period_and_span_metrics[f"{period_key}_variation"] = variation(arr)
+        if "binary" in period_key:
+            period_and_span_metrics[f"{period_key}_frac"] = _compute_frac(arr)
+
+            # All "binary" keys follow pattern of
+            # <file_subset>_changed_binary
+            file_subset = period_key.replace("_changed_binary", "")
+
+            # Get spans
+            span_results = get_change_spans(arr)
+            for span_reduction_func in [
+                np.median,
+                np.mean,
+                np.std,
+            ]:
+                # Did change spans
+                did_change_span_key = (
+                    f"{file_subset}_did_change_" f"{span_reduction_func.__name__}_span"
+                )
+                if len(span_results.did_change_spans) > 0:
+                    period_and_span_metrics[did_change_span_key] = span_reduction_func(
+                        span_results.did_change_spans
+                    )
+                else:
+                    period_and_span_metrics[did_change_span_key] = float("nan")
+
+                # Did not change spans
+                did_not_change_span_key = (
+                    f"{file_subset}_did_not_change_"
+                    f"{span_reduction_func.__name__}_span"
+                )
+                if len(span_results.did_not_change_spans) > 0:
+                    period_and_span_metrics[did_not_change_span_key] = (
+                        span_reduction_func(span_results.did_not_change_spans)
+                    )
+                else:
+                    period_and_span_metrics[did_not_change_span_key] = float("nan")
+
+    return period_and_span_metrics
+
+
 def compute_timeseries_metrics(
     commits_df: pl.DataFrame,
     period_span: str | float | timedelta,
@@ -272,53 +346,20 @@ def compute_timeseries_metrics(
         datetime_col=datetime_col,
     )
 
-    def _compute_entropy(arr: list[int]) -> float:
-        return entropy(
-            arr / np.sum(arr),
-            base=2,
-        )
-
-    def _compute_frac(arr: list[int]) -> float:
-        return np.sum(arr) / len(arr)
-
-    # Iter over all non-metadata items returned in periods_changed_results
-    # Compute single metrics in-place of arrays
-    period_and_span_metrics = {}
-    for period_key, metadata_or_arr in periods_changed_results.to_dict().items():
-        # Ignore metadata fields
-        if period_key in (
-            "period_span",
-            "start_datetime",
-            "end_datetime",
-            "datetime_column",
-        ):
-            continue
-
-        # All metadata should not be filtered out
-        arr = metadata_or_arr
-        assert isinstance(arr, list)
-
-        # Compute
-        period_and_span_metrics[f"{period_key}_entropy"] = _compute_entropy(arr)
-        period_and_span_metrics[f"{period_key}_variation"] = variation(arr)
-        if "binary" in period_key:
-            period_and_span_metrics[f"{period_key}_frac"] = _compute_frac(arr)
-
-            # Get spans
-            span_results = get_change_spans(arr)
-            for span_reduction_func in [
-                np.median,
-                np.mean,
-                np.std,
-            ]:
-                # TODO: determine which file subset we are working on
-                # so that we can label things properly in the constructed metric
-                pass
+    # Compute metrics from periods changed results
+    # 1. Entropy and variation of binary and lines changed count
+    # 2. Fraction of periods with changes (for binary only)
+    # 3. Change spans (for binary only)
+    #    - Median, mean, std of spans with changes
+    #    - Median, mean, std of spans without changes
+    period_and_span_metrics = _compute_metrics_from_periods_change_results(
+        periods_changed_results,
+    )
 
     return TimeseriesMetrics(
         period_span=timedelta_to_string(td),
         start_datetime=start_datetime_dt.isoformat(),
         end_datetime=end_datetime_dt.isoformat(),
         datetime_column=datetime_col,
-        **period_and_span_metrics,
+        **period_and_span_metrics,  # type: ignore
     )
