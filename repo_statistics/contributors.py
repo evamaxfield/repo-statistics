@@ -351,3 +351,57 @@ def compute_contributor_distribution_metrics(
             for metric_name, metric_value in file_subset_metrics.to_dict().items()
         },
     )
+
+
+@dataclass
+class ContributorChangeMetrics(DataClassJsonMixin):
+    diff_contributor_count: int
+    same_contributor_count: int
+
+
+def compute_contributor_change_metrics(
+    commits_df: pl.DataFrame,
+    start_datetime: str | date | datetime | None = None,
+    end_datetime: str | date | datetime | None = None,
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
+) -> ContributorChangeMetrics:
+    # Parse datetimes and filter commits to range
+    commits_df, _, _ = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
+
+    # Calculate commit count thresholds
+    total_commits = len(commits_df)
+    commit_threshold = int(total_commits * 0.2)
+
+    # Get the set of contributors in the first 20% of commits
+    initial_commits = commits_df.head(commit_threshold)
+
+    # Ensure that we at least have 3 commits
+    if len(initial_commits) < 3:
+        initial_commits = commits_df.head(3)
+
+    # Get contribs in the first 20%
+    initial_contributors = set(initial_commits[contributor_name_col])
+
+    # Get the set of contributors in the last 20% of commits
+    most_recent_commits = commits_df.tail(commit_threshold)
+
+    # Ensure that we at least have 3 commits
+    if len(most_recent_commits) < 3:
+        most_recent_commits = commits_df.tail(3)
+
+    # Get contribs in the last 20%
+    most_recent_contributors = set(most_recent_commits[contributor_name_col])
+
+    # Get the difference
+    return ContributorChangeMetrics(
+        diff=len(initial_contributors.difference(most_recent_contributors)),
+        same=len(initial_contributors.intersection(most_recent_contributors)),
+    )
