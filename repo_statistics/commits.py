@@ -7,13 +7,14 @@ from pathlib import Path
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
+from tqdm import tqdm
 
 from .utils import get_linguist_file_type
 
 ###############################################################################
 
 
-@dataclass
+@dataclass(slots=True)
 class PerFileCommitDelta(DataClassJsonMixin):
     authored_datetime: datetime
     committed_datetime: datetime
@@ -30,7 +31,7 @@ class PerFileCommitDelta(DataClassJsonMixin):
     lines_changed: int
 
 
-@dataclass
+@dataclass(slots=True)
 class CommitSummary(DataClassJsonMixin):
     authored_datetime: datetime
     committed_datetime: datetime
@@ -91,12 +92,20 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     else:
         repo = Repo(repo_path)
 
+    # Get total number of commits for progress tracking
+    total_commit_count = int(repo.git.rev_list("--count", "HEAD"))
+
     # Init storage
     per_file_commit_deltas: list[PerFileCommitDelta] = []
     per_commit_summaries: list[CommitSummary] = []
 
     # Iter over commits and collect data
-    for commit in repo.iter_commits():
+    for commit in tqdm(
+        repo.iter_commits(),
+        total=total_commit_count,
+        desc="Parsing commits",
+        unit="commit",
+    ):
         authored_datetime = datetime.fromtimestamp(commit.authored_date)
         committed_datetime = datetime.fromtimestamp(commit.committed_date)
         commit_hash = commit.hexsha
@@ -240,8 +249,6 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
         )
 
     return ParsedCommitsResult(
-        per_file_commit_deltas=pl.DataFrame(
-            [cd.to_dict() for cd in per_file_commit_deltas]
-        ),
-        commit_summaries=pl.DataFrame([cs.to_dict() for cs in per_commit_summaries]),
+        per_file_commit_deltas=pl.DataFrame(per_file_commit_deltas),
+        commit_summaries=pl.DataFrame(per_commit_summaries),
     )

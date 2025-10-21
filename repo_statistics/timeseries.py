@@ -58,6 +58,12 @@ def get_periods_changed(
     else:
         end_datetime_dt = parse_datetime(end_datetime)
 
+    # Reduce commits to the specified time range
+    commits_df = commits_df.filter(
+        (commits_df[datetime_col] >= start_datetime_dt)
+        & (commits_df[datetime_col] <= end_datetime_dt)
+    )
+
     # Calculate total periods
     change_duration = end_datetime_dt - start_datetime_dt
     n_tds = math.ceil(change_duration / td)
@@ -234,13 +240,6 @@ class TimeseriesMetrics(DataClassJsonMixin):
     unknown_did_not_change_median_span: int
     unknown_did_not_change_mean_span: float
     unknown_did_not_change_std_span: float
-    # # Contributor metrics
-    # stable_contributors_count: int
-    # transient_contributors_count: int
-    # median_contribution_span_days: float
-    # mean_contribution_span_days: float
-    # normalized_median_span: float
-    # normalized_mean_span: float
 
 
 def _compute_entropy(arr: list[int]) -> float:
@@ -336,6 +335,12 @@ def compute_timeseries_metrics(
         end_datetime_dt = commits_df[datetime_col].max()
     else:
         end_datetime_dt = parse_datetime(end_datetime)
+
+    # Reduce commits to the specified time range
+    commits_df = commits_df.filter(
+        (commits_df[datetime_col] >= start_datetime_dt)
+        & (commits_df[datetime_col] <= end_datetime_dt)
+    )
 
     # Get periods changed
     periods_changed_results = get_periods_changed(
