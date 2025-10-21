@@ -1,0 +1,254 @@
+{
+    "version": 2,
+    "axioms": {
+      "linguist": "language",
+      "licensee": "license",
+      "packagers": "packager"
+    },
+    "rules": {
+      "license-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              "LICENSE*",
+              "COPYING*",
+              "docs/LICENSE*",
+              "docs/COPYING*",
+              "documentation/LICENSE*",
+              "documentation/COPYING*",
+              ".github/LICENSE*",
+              ".github/COPYING*"
+            ],
+            "nocase": true
+          }
+        }
+      },
+      "readme-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": ["README*"],
+            "nocase": true
+          }
+        }
+      },
+      "contributing-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              "CONTRIB*",
+              "docs/CONTRIB*",
+              "documentation/CONTRIB*",
+              ".github/CONTRIB*"
+            ],
+            "nocase": true
+          }
+        }
+      },
+      "code-of-conduct-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              "CODEOFCONDUCT*",
+              "CODE-OF-CONDUCT*",
+              "CODE_OF_CONDUCT*",
+              "docs/CODEOFCONDUCT*",
+              "docs/CODE-OF-CONDUCT*",
+              "docs/CODE_OF_CONDUCT*",
+              "documentation/CODEOFCONDUCT*",
+              "documentation/CODE-OF-CONDUCT*",
+              "documentation/CODE_OF_CONDUCT*",
+              ".github/CODEOFCONDUCT*",
+              ".github/CODE-OF-CONDUCT*",
+              ".github/CODE_OF_CONDUCT*"
+            ],
+            "nocase": true
+          }
+        }
+      },
+      "changelog-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              "CHANGELOG*",
+              "docs/CHANGELOG*",
+              "documentation/CHANGELOG*",
+              ".github/CHANGELOG*"
+            ],
+            "nocase": true
+          }
+        }
+      },
+      "security-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              "SECURITY*",
+              "docs/SECURITY*",
+              "documentation/SECURITY*",
+              ".github/SECURITY*"
+            ],
+            "nocase": true
+          }
+        }
+      },
+      "support-file-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              "SUPPORT*",
+              "docs/SUPPORT*",
+              "documentation/SUPPORT*",
+              ".github/SUPPORT*"
+            ],
+            "nocase": true
+          }
+        }
+      },
+      "readme-references-license": {
+        "level": "error",
+        "rule": {
+          "type": "file-contents",
+          "options": {
+            "globsAll": ["README*"],
+            "content": "license",
+            "flags": "i"
+          }
+        }
+      },
+      "binaries-not-present": {
+        "level": "error",
+        "rule": {
+          "type": "file-type-exclusion",
+          "options": {
+            "type": [
+              "**/*.exe",
+              "**/*.dll",
+              "**/node_modules/**",
+              "node_modules/**"
+            ]
+          }
+        }
+      },
+      "test-directory-exists": {
+        "level": "error",
+        "rule": {
+          "type": "directory-existence",
+          "options": {
+            "globsAny": [
+              "test*",
+              "spec*",
+              "**/test*",
+              "**/spec*"
+            ],
+            "nocase": true,
+            "dirs": true
+          }
+        }
+      },
+      "integrates-with-ci": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "globsAny": [
+              ".gitlab-ci.yml",
+              ".travis.yml",
+              "appveyor.yml",
+              ".appveyor.yml",
+              "circle.yml",
+              ".circleci/config.yml",
+              "Jenkinsfile",
+              ".drone.yml",
+              ".github/workflows/*",
+              "azure-pipelines.yml"
+            ]
+          }
+        }
+      },
+      "code-of-conduct-file-contains-email": {
+        "level": "error",
+        "rule": {
+          "type": "file-contents",
+          "options": {
+            "globsAll": [
+              "CODEOFCONDUCT*",
+              "CODE-OF-CONDUCT*",
+              "CODE_OF_CONDUCT*",
+              "docs/CODEOFCONDUCT*",
+              "docs/CODE-OF-CONDUCT*",
+              "docs/CODE_OF_CONDUCT*",
+              "documentation/CODEOFCONDUCT*",
+              "documentation/CODE-OF-CONDUCT*",
+              "documentation/CODE_OF_CONDUCT*",
+              ".github/CODEOFCONDUCT*",
+              ".github/CODE-OF-CONDUCT*",
+              ".github/CODE_OF_CONDUCT*"
+            ],
+            "content": ".+@.+\\..+",
+            "flags": "i",
+            "human-readable-content": "email address"
+          }
+        }
+      },
+      "github-issue-template-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "dirs": true,
+            "globsAny": [
+              "ISSUETEMPLATE*",
+              "ISSUE-TEMPLATE*",
+              "ISSUE_TEMPLATE*",
+              "docs/ISSUETEMPLATE*",
+              "docs/ISSUE-TEMPLATE*",
+              "docs/ISSUE_TEMPLATE*",
+              "documentation/ISSUETEMPLATE*",
+              "documentation/ISSUE-TEMPLATE*",
+              "documentation/ISSUE_TEMPLATE*",
+              ".github/ISSUETEMPLATE*",
+              ".github/ISSUE-TEMPLATE*",
+              ".github/ISSUE_TEMPLATE*"
+            ]
+          }
+        }
+      },
+      "github-pull-request-template-exists": {
+        "level": "error",
+        "rule": {
+          "type": "file-existence",
+          "options": {
+            "dirs": true,
+            "globsAny": [
+              "PULLREQUESTTEMPLATE*",
+              "PULL-REQUEST-TEMPLATE*",
+              "PULL_REQUEST_TEMPLATE*",
+              "docs/PULLREQUESTTEMPLATE*",
+              "docs/PULL-REQUEST-TEMPLATE*",
+              "docs/PULL_REQUEST_TEMPLATE*",
+              "documentation/PULLREQUESTTEMPLATE*",
+              "documentation/PULL-REQUEST-TEMPLATE*",
+              "documentation/PULL_REQUEST_TEMPLATE*",
+              ".github/PULLREQUESTTEMPLATE*",
+              ".github/PULL-REQUEST-TEMPLATE*",
+              ".github/PULL_REQUEST_TEMPLATE*"
+            ]
+          }
+        }
+      }
+    }
+  }
