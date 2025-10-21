@@ -12,7 +12,7 @@ from scipy.stats import entropy, variation
 from tqdm import tqdm
 
 from . import constants
-from .utils import parse_datetime, parse_timedelta, timedelta_to_string
+from .utils import filter_changes_to_dt_range, parse_timedelta, timedelta_to_string
 
 ###############################################################################
 
@@ -49,19 +49,13 @@ def get_periods_changed(
 ) -> ChangePeriodResults:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
-    if start_datetime is None:
-        start_datetime_dt: datetime = commits_df[datetime_col].min()
-    else:
-        start_datetime_dt = parse_datetime(start_datetime)
-    if end_datetime is None:
-        end_datetime_dt: datetime = commits_df[datetime_col].max()
-    else:
-        end_datetime_dt = parse_datetime(end_datetime)
 
-    # Reduce commits to the specified time range
-    commits_df = commits_df.filter(
-        (commits_df[datetime_col] >= start_datetime_dt)
-        & (commits_df[datetime_col] <= end_datetime_dt)
+    # Parse datetimes and filter commits to range
+    commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
     )
 
     # Calculate total periods
@@ -327,19 +321,13 @@ def compute_timeseries_metrics(
 ) -> TimeseriesMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
-    if start_datetime is None:
-        start_datetime_dt = commits_df[datetime_col].min()
-    else:
-        start_datetime_dt = parse_datetime(start_datetime)
-    if end_datetime is None:
-        end_datetime_dt = commits_df[datetime_col].max()
-    else:
-        end_datetime_dt = parse_datetime(end_datetime)
 
-    # Reduce commits to the specified time range
-    commits_df = commits_df.filter(
-        (commits_df[datetime_col] >= start_datetime_dt)
-        & (commits_df[datetime_col] <= end_datetime_dt)
+    # Parse datetimes and filter commits to range
+    commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
     )
 
     # Get periods changed

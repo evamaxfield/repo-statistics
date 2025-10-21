@@ -7,9 +7,10 @@ from typing import Literal
 import numpy as np
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
+from scipy.stats import entropy
 
 from . import constants
-from .utils import parse_datetime, parse_timedelta
+from .utils import filter_changes_to_dt_range, parse_timedelta
 
 ###############################################################################
 
@@ -36,19 +37,13 @@ def compute_contributor_stability_metrics(
 ) -> ContributorStabilityMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
-    if start_datetime is None:
-        start_datetime_dt = commits_df[datetime_col].min()
-    else:
-        start_datetime_dt = parse_datetime(start_datetime)
-    if end_datetime is None:
-        end_datetime_dt = commits_df[datetime_col].max()
-    else:
-        end_datetime_dt = parse_datetime(end_datetime)
 
-    # Reduce commits to the specified time range
-    commits_df = commits_df.filter(
-        (commits_df[datetime_col] >= start_datetime_dt)
-        & (commits_df[datetime_col] <= end_datetime_dt)
+    # Parse datetimes and filter commits to range
+    commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
     )
 
     # Calculate project duration in days
@@ -113,19 +108,12 @@ def compute_contributor_absence_factor(
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
 ) -> int:
-    if start_datetime is None:
-        start_datetime_dt = commits_df[datetime_col].min()
-    else:
-        start_datetime_dt = parse_datetime(start_datetime)
-    if end_datetime is None:
-        end_datetime_dt = commits_df[datetime_col].max()
-    else:
-        end_datetime_dt = parse_datetime(end_datetime)
-
-    # Reduce commits to the specified time range
-    commits_df = commits_df.filter(
-        (commits_df[datetime_col] >= start_datetime_dt)
-        & (commits_df[datetime_col] <= end_datetime_dt)
+    # Parse datetimes and filter commits to range
+    commits_df, _, _ = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
     )
 
     # Create list of lines changed by file type
@@ -164,3 +152,202 @@ def compute_contributor_absence_factor(
         ] = contributors_to_half
 
     return ContributorAbsenceFactorMetrics(**contrib_absence_factor_per_file_subset)
+
+
+@dataclass
+class SingleFileSubsetContributorDistributionMetrics(DataClassJsonMixin):
+    contributors_per_file_entropy: float
+    files_per_contributor_entropy: float
+    simple_threshold_generalist_count: int
+    simple_threshold_specialist_count: int
+    median_threshold_generalist_count: int
+    median_threshold_specialist_count: int
+    twenty_fifth_percentile_threshold_generalist_count: int
+    twenty_fifth_percentile_threshold_specialist_count: int
+
+
+@dataclass
+class ContributorDistributionMetrics(DataClassJsonMixin):
+    total_contributors_per_file_entropy: float
+    total_files_per_contributor_entropy: float
+    total_simple_threshold_generalist_count: int
+    total_simple_threshold_specialist_count: int
+    total_median_threshold_generalist_count: int
+    total_median_threshold_specialist_count: int
+    total_twenty_fifth_percentile_threshold_generalist_count: int
+    total_twenty_fifth_percentile_threshold_specialist_count: int
+    programming_contributors_per_file_entropy: float
+    programming_files_per_contributor_entropy: float
+    programming_simple_threshold_generalist_count: int
+    programming_simple_threshold_specialist_count: int
+    programming_median_threshold_generalist_count: int
+    programming_median_threshold_specialist_count: int
+    programming_twenty_fifth_percentile_threshold_generalist_count: int
+    programming_twenty_fifth_percentile_threshold_specialist_count: int
+    markup_contributors_per_file_entropy: float
+    markup_files_per_contributor_entropy: float
+    markup_simple_threshold_generalist_count: int
+    markup_simple_threshold_specialist_count: int
+    markup_median_threshold_generalist_count: int
+    markup_median_threshold_specialist_count: int
+    markup_twenty_fifth_percentile_threshold_generalist_count: int
+    markup_twenty_fifth_percentile_threshold_specialist_count: int
+    prose_contributors_per_file_entropy: float
+    prose_files_per_contributor_entropy: float
+    prose_simple_threshold_generalist_count: int
+    prose_simple_threshold_specialist_count: int
+    prose_median_threshold_generalist_count: int
+    prose_median_threshold_specialist_count: int
+    prose_twenty_fifth_percentile_threshold_generalist_count: int
+    prose_twenty_fifth_percentile_threshold_specialist_count: int
+    data_contributors_per_file_entropy: float
+    data_files_per_contributor_entropy: float
+    data_simple_threshold_generalist_count: int
+    data_simple_threshold_specialist_count: int
+    data_median_threshold_generalist_count: int
+    data_median_threshold_specialist_count: int
+    data_twenty_fifth_percentile_threshold_generalist_count: int
+    data_twenty_fifth_percentile_threshold_specialist_count: int
+    unknown_contributors_per_file_entropy: float
+    unknown_files_per_contributor_entropy: float
+    unknown_simple_threshold_generalist_count: int
+    unknown_simple_threshold_specialist_count: int
+    unknown_median_threshold_generalist_count: int
+    unknown_median_threshold_specialist_count: int
+    unknown_twenty_fifth_percentile_threshold_generalist_count: int
+    unknown_twenty_fifth_percentile_threshold_specialist_count: int
+
+
+def _compute_single_file_subset_contributor_distribution(
+    filetype_filtered_df: pl.DataFrame,
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
+) -> SingleFileSubsetContributorDistributionMetrics:
+    # Handle files per contributor
+    files_per_contributor_vector = []
+    for _, contributor_group in filetype_filtered_df.group_by(contributor_name_col):
+        # Add the number of unique files touched by this contributor
+        files_per_contributor_vector.append(contributor_group["filename"].n_unique())
+
+    # Handle contributors per file
+    contributors_per_file_vector = []
+    for _, file_group in filetype_filtered_df.group_by("filename"):
+        # Add the number of unique contributors who touched this file
+        contributors_per_file_vector.append(file_group[contributor_name_col].n_unique())
+
+    # Handle single contributor case
+    if len(files_per_contributor_vector) == 1:
+        files_per_contributor_entropy = np.nan
+    else:
+        # Convert to probabilities
+        files_per_contributor_vector_as_prob = np.array(
+            files_per_contributor_vector
+        ) / sum(files_per_contributor_vector)
+        files_per_contributor_entropy = entropy(
+            files_per_contributor_vector_as_prob, base=2
+        )
+
+    # Handle single file case
+    if len(contributors_per_file_vector) == 1:
+        contributors_per_file_entropy = np.nan
+    else:
+        # Convert to probabilities
+        contributors_per_file_vector_as_prob = np.array(
+            contributors_per_file_vector
+        ) / sum(contributors_per_file_vector)
+        contributors_per_file_entropy = entropy(
+            contributors_per_file_vector_as_prob, base=2
+        )
+
+    # Count specialists and generalists
+    simple_threshold_generalist_count = 0
+    simple_threshold_specialist_count = 0
+    median_threshold_generalist_count = 0
+    median_threshold_specialist_count = 0
+    twenty_fifth_percentile_threshold_generalist_count = 0
+    twenty_fifth_percentile_threshold_specialist_count = 0
+
+    # Handle no files per contributor
+    if len(files_per_contributor_vector) > 0:
+        # Get the median number of files changed per contributor
+        twenty_fifth_percentile_files_per_contributor = np.percentile(
+            files_per_contributor_vector, 25
+        )
+        median_files_per_contributor = np.median(files_per_contributor_vector)
+
+        for contributor_files_count in files_per_contributor_vector:
+            # Handle simple threshold
+            if contributor_files_count <= 3:
+                simple_threshold_specialist_count += 1
+            else:
+                simple_threshold_generalist_count += 1
+
+            # Handle median threshold
+            if contributor_files_count <= median_files_per_contributor:
+                median_threshold_specialist_count += 1
+            else:
+                median_threshold_generalist_count += 1
+
+            # Handle 25th percentile threshold
+            if contributor_files_count <= twenty_fifth_percentile_files_per_contributor:
+                twenty_fifth_percentile_threshold_specialist_count += 1
+            else:
+                twenty_fifth_percentile_threshold_generalist_count += 1
+
+    # Compile metrics for this file subset
+    return SingleFileSubsetContributorDistributionMetrics(
+        contributors_per_file_entropy=contributors_per_file_entropy,
+        files_per_contributor_entropy=files_per_contributor_entropy,
+        simple_threshold_generalist_count=simple_threshold_generalist_count,
+        simple_threshold_specialist_count=simple_threshold_specialist_count,
+        median_threshold_generalist_count=median_threshold_generalist_count,
+        median_threshold_specialist_count=median_threshold_specialist_count,
+        twenty_fifth_percentile_threshold_generalist_count=twenty_fifth_percentile_threshold_generalist_count,
+        twenty_fifth_percentile_threshold_specialist_count=twenty_fifth_percentile_threshold_specialist_count,
+    )
+
+
+def compute_contributor_distribution_metrics(
+    per_file_commit_deltas_df: pl.DataFrame,
+    start_datetime: str | date | datetime | None = None,
+    end_datetime: str | date | datetime | None = None,
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
+) -> ContributorDistributionMetrics:
+    # Parse datetimes and filter commits to range
+    per_file_commit_deltas_df, _, _ = filter_changes_to_dt_range(
+        changes_df=per_file_commit_deltas_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
+
+    # Make each calculation for all file types
+    file_subset_metrics: dict[str, SingleFileSubsetContributorDistributionMetrics] = {}
+    for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
+        # With "total" we use the whole per_file_commit_deltas_df
+        # For other file types we filter down to just that file type
+        if file_subset != "total":
+            filetype_filtered_df = per_file_commit_deltas_df.filter(
+                pl.col("filetype") == file_subset
+            )
+        else:
+            filetype_filtered_df = per_file_commit_deltas_df
+
+        # Store to dict
+        file_subset_metrics[file_subset] = (
+            _compute_single_file_subset_contributor_distribution(
+                filetype_filtered_df=filetype_filtered_df,
+                contributor_name_col=contributor_name_col,
+            )
+        )
+
+    # Compile all file subset metrics into one dataclass
+    return ContributorDistributionMetrics(
+        **{
+            f"{file_subset}_{metric_name}": metric_value
+            for file_subset, file_subset_metrics in file_subset_metrics.items()
+            for metric_name, metric_value in file_subset_metrics.to_dict().items()
+        },
+    )

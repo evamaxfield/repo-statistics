@@ -290,3 +290,53 @@ def parse_date(s: str | datetime | date) -> date:
         except ValueError as e:
             raise ValueError(f"Invalid date string: {s}") from e
     raise TypeError(f"Input must be a str, datetime, or date, got {type(s)}")
+
+
+def filter_changes_to_dt_range(
+    changes_df: pl.DataFrame,
+    start_datetime: str | date | datetime | None = None,
+    end_datetime: str | date | datetime | None = None,
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
+) -> tuple[pl.DataFrame, datetime, datetime]:
+    """Filter changes DataFrame to a specified datetime range.
+
+    Parameters
+    ----------
+    changes_df : pl.DataFrame
+        DataFrame containing commit data or per-file-commit-deltas with
+        'authored_datetime' and 'committed_datetime' columns.
+    start_datetime : str, date, datetime, or None, optional
+        Start of the datetime range.
+        If None, uses the minimum datetime in the DataFrame.
+    end_datetime : str, date, datetime, or None, optional
+        End of the datetime range. If None, uses the maximum datetime in the DataFrame.
+    datetime_col : str, optional
+        Column to use for filtering ('authored_datetime' or 'committed_datetime').
+
+    Returns
+    -------
+    pl.DataFrame
+        Filtered DataFrame containing only changes within the specified datetime range.
+    datetime
+        The start datetime used for filtering.
+    datetime
+        The end datetime used for filtering.
+    """
+    if start_datetime is None:
+        start_datetime_dt = changes_df[datetime_col].min()
+    else:
+        start_datetime_dt = parse_datetime(start_datetime)
+    if end_datetime is None:
+        end_datetime_dt = changes_df[datetime_col].max()
+    else:
+        end_datetime_dt = parse_datetime(end_datetime)
+
+    # Filter changes to the specified time range
+    filtered_changes_df = changes_df.filter(
+        (changes_df[datetime_col] >= start_datetime_dt)
+        & (changes_df[datetime_col] <= end_datetime_dt)
+    )
+
+    return filtered_changes_df, start_datetime_dt, end_datetime_dt
