@@ -1,20 +1,21 @@
 #!/usr/bin/env python
 
-from dataclasses import dataclass
-from pathlib import Path
 import json
 import re
+from dataclasses import dataclass
+from pathlib import Path
 
-from git import Repo
 from dataclasses_json import DataClassJsonMixin
+from git import Repo
 
-from . data import DATA_FILES_DIR
+from .data import DATA_FILES_DIR
 
 ###############################################################################
 
 REPO_LINTER_RULESET_PATH = DATA_FILES_DIR / "repo-linter-ruleset.json"
 
 ###############################################################################
+
 
 def _process_repo_linter_file_existence_rule(
     repo: Repo,
