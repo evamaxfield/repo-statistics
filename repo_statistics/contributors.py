@@ -29,9 +29,7 @@ def compute_contributor_stability_metrics(
     period_span: str | float | timedelta,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    contributor_name_col: Literal[
-        "author_name", "committer_name"
-    ] = "author_name",
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
@@ -110,9 +108,7 @@ def compute_contributor_absence_factor(
     commits_df: pl.DataFrame,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    contributor_name_col: Literal[
-        "author_name", "committer_name"
-    ] = "author_name",
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
@@ -146,7 +142,10 @@ def compute_contributor_absence_factor(
 
     # Sort all lists, sum, get half, then find min number of contributors to reach half
     contrib_absence_factor_per_file_subset: dict[str, int] = {}
-    for file_subset, lines_changed_per_contrib in all_file_subsets_lines_change_per_contrib.items():
+    for (
+        file_subset,
+        lines_changed_per_contrib,
+    ) in all_file_subsets_lines_change_per_contrib.items():
         descending_lines_changed_per_contrib = sorted(
             lines_changed_per_contrib, reverse=True
         )
