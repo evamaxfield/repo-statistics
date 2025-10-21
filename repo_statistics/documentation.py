@@ -174,9 +174,9 @@ class RepoLinterResults(DataClassJsonMixin):
     github_pull_request_template_exists: bool
 
 
-def process_repository_with_repo_linter(
+def process_with_repo_linter(
     repo_path: str | Path | Repo,
-) -> dict[str, bool]:
+) -> RepoLinterResults:
     if isinstance(repo_path, Repo):
         repo = repo_path
     else:
