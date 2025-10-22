@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+
 def get_heuristic_project_type(
     starsgazers_count: int,
     total_contibutors_count: int,
