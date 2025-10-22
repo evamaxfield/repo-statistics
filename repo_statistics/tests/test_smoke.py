@@ -26,6 +26,7 @@ def test_single_disabled_metrics() -> None:
         compute_platform_metrics=False,
     )
 
+
 def test_multiple_disabled_metrics() -> None:
     # Nearly every portion of metrics can be disable independent from one another
     analyze_repository(
@@ -39,6 +40,7 @@ def test_multiple_disabled_metrics() -> None:
         compute_platform_metrics=False,
     )
 
+
 def test_time_period_filters() -> None:
     # By default, all time-periods are considered
     # However, you can provide also provide a "start_datetime" and/or "end_datetime"
@@ -48,6 +50,7 @@ def test_time_period_filters() -> None:
         end_datetime="2026-01-01",
         compute_platform_metrics=False,
     )
+
 
 def test_bot_filters() -> None:
     # We also ignore bot changes by default by looking for
