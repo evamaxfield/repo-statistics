@@ -31,6 +31,7 @@ dependencies = [
   "comment_parser>=1,<2",
   "dataclasses-json>=0.6,<1",
   "gitpython>=3,<4",
+  "ghapi>=1,<2",
   "lizard>=1,<2",
   "numpy>=1,<2",
   "scipy>=1,<2",
