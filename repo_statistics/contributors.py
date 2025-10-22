@@ -16,6 +16,45 @@ from .utils import filter_changes_to_dt_range, parse_timedelta
 
 
 @dataclass
+class ContributorCountMetrics(DataClassJsonMixin):
+    total_contributor_count: int
+    programming_contributor_count: int
+    markup_contributor_count: int
+    prose_contributor_count: int
+    data_contributor_count: int
+    unknown_contributor_count: int
+
+
+def compute_contributor_counts(
+    commits_df: pl.DataFrame,
+    start_datetime: str | date | datetime | None = None,
+    end_datetime: str | date | datetime | None = None,
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
+) -> ContributorCountMetrics:
+    # Parse datetimes and filter commits to range
+    commits_df, _, _ = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
+
+    # Get unique contributors for each file type
+    contributor_counts: dict[str, int] = {}
+    for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
+        subset_df = commits_df.filter(commits_df[f"{file_subset}_lines_changed"] > 0)
+        unique_contributors = subset_df[contributor_name_col].unique()
+        contributor_counts[f"{file_subset}_contributor_count"] = len(
+            unique_contributors
+        )
+
+    return ContributorCountMetrics(**contributor_counts)
+
+
+@dataclass
 class ContributorStabilityMetrics(DataClassJsonMixin):
     stable_contributors_count: int
     transient_contributors_count: int

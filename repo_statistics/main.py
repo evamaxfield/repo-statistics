@@ -105,16 +105,31 @@ def _analyze_repository(  # noqa: C901
     # Compute commit counts
     commit_count_results = commits.compute_commit_counts(
         commits_df=commits_df,
+        start_datetime=start_datetime_dt,
+        end_datetime=end_datetime_dt,
+        datetime_col=datetime_col,
     )
     all_metrics.update(commit_count_results.to_dict())
 
     # Get important change dates
     important_change_date_results = commits.compute_important_change_dates(
         commits_df=commits_df,
+        start_datetime=start_datetime_dt,
+        end_datetime=end_datetime_dt,
         datetime_col=datetime_col,
         substantial_change_threshold_quantile=substantial_change_threshold_quantile,
     )
     all_metrics.update(important_change_date_results.to_dict())
+
+    # Compute contributor counts
+    contributor_count_results = contributors.compute_contributor_counts(
+        commits_df=commits_df,
+        start_datetime=start_datetime_dt,
+        end_datetime=end_datetime_dt,
+        contributor_name_col=contributor_name_col,
+        datetime_col=datetime_col,
+    )
+    all_metrics.update(contributor_count_results.to_dict())
 
     # Compute timeseries and contributor stability metrics
     for period_span in period_spans:
