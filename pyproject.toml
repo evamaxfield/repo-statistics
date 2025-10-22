@@ -57,6 +57,7 @@ lint = [
 dev = [
   "ipython",
   "jupyterlab",
+  "pytest>=5.4.3",
 ]
 
 # entry points

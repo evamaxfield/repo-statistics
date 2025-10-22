@@ -26,6 +26,10 @@ install:
 lint:
 	pre-commit run --all-files
 
+# run pytest
+test:
+	pytest .
+
 ###############################################################################
 # Release and versioning
 

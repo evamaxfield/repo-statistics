@@ -352,24 +352,21 @@ def get_commit_hash_for_target_datetime(
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
 ) -> str:
-    # Filter changes to target datetime if provided
-    commits_df, _, _ = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=target_datetime,
-        end_datetime=target_datetime,
-        datetime_col=datetime_col,
+    # If no target datetime is provided, return the latest commit hash
+    if target_datetime is None:
+        latest_commit_hexsha = commits_df.sort(datetime_col, descending=True)[
+            "commit_hash"
+        ][0]
+        return latest_commit_hexsha
+
+    # Find the latest commit hash up to the target datetime
+    target_datetime_dt = parse_datetime(target_datetime)
+    commits_up_to_target = commits_df.filter(
+        commits_df[datetime_col] <= target_datetime_dt
     )
-
-    # Get the latest commit datetime in the filtered commits_df
-    if commits_df.height == 0:
-        raise ValueError(
-            "No commits found for the specified datetime in the repository history."
-        )
-
-    latest_commit_hexsha = commits_df.sort(datetime_col, descending=True)[
+    latest_commit_hexsha = commits_up_to_target.sort(datetime_col, descending=True)[
         "commit_hash"
     ][0]
-
     return latest_commit_hexsha
 
 
