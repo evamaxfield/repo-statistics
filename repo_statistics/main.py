@@ -1,13 +1,21 @@
 #!/usr/bin/env python
 
 import logging
+import traceback
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import date, datetime
+from itertools import cycle
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal
+from typing import Any, Literal
 
+import polars as pl
+from dataclasses_json import DataClassJsonMixin
+from gh_tokens_loader import GitHubTokensCycler
 from git import Repo
 from timeout_function_decorator import timeout
+from tqdm import tqdm
 
 from . import (
     classification,
@@ -25,6 +33,13 @@ from . import (
 log = logging.getLogger(__name__)
 
 ###############################################################################
+
+
+@dataclass
+class TrackedErrorResult(DataClassJsonMixin):
+    repo_path: str | Path
+    err: str
+    tb: str
 
 
 def _analyze_repository(  # noqa: C901
@@ -48,7 +63,7 @@ def _analyze_repository(  # noqa: C901
     compute_sloc_metrics: bool = True,
     compute_tag_metrics: bool = True,
     compute_platform_metrics: bool = True,
-) -> dict | None:
+) -> dict:
     # Get processed at datetime
     processed_at_dt = datetime.now()
 
@@ -62,11 +77,10 @@ def _analyze_repository(  # noqa: C901
 
     # If less than 5 commits, return None
     if len(commits_df) < 5:
-        log.warning(
+        raise ValueError(
             f"Repository {parsed_repo.owner}/{parsed_repo.name} "
-            f"has less than 5 commits. Skipping analysis."
+            f"has less than 5 commits."
         )
-        return None
 
     # Parse and filter changes to datetime range
     commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
@@ -254,7 +268,7 @@ def _analyze_repository(  # noqa: C901
 
 
 def analyze_repository(
-    repo_path: str | Path | Repo,
+    repo_path: str | Path,
     github_token: str | None = None,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
@@ -276,55 +290,19 @@ def analyze_repository(
     compute_platform_metrics: bool = True,
     clone_timeout_seconds: int = 120,
     analyze_timeout_seconds: int = 300,
-) -> dict | None:
+) -> dict | TrackedErrorResult:
     # Wrap private analyze function with timeout
     @timeout(analyze_timeout_seconds)
     def _analyze_repository_with_timeout(
-        repo_path: str | Path | Repo,
-        github_token: str | None = None,
-        start_datetime: str | date | datetime | None = None,
-        end_datetime: str | date | datetime | None = None,
-        contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-        datetime_col: Literal[
-            "authored_datetime", "committed_datetime"
-        ] = "authored_datetime",
-        period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
-        bot_names: tuple[str, ...] | None = ("dependabot", "github"),
-        bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
-        substantial_change_threshold_quantile: float = 0.1,
-        compute_timeseries_metrics: bool = True,
-        compute_contributor_stability_metrics: bool = True,
-        compute_contributor_absence_factor: bool = True,
-        compute_contributor_distribution_metrics: bool = True,
-        compute_repo_linter_metrics: bool = True,
-        compute_sloc_metrics: bool = True,
-        compute_tag_metrics: bool = True,
-        compute_platform_metrics: bool = True,
-    ) -> dict | None:
+        **kwargs: Any,
+    ) -> dict:
         return _analyze_repository(
-            repo_path=repo_path,
-            github_token=github_token,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
-            contributor_name_col=contributor_name_col,
-            datetime_col=datetime_col,
-            period_spans=period_spans,
-            bot_names=bot_names,
-            bot_email_indicators=bot_email_indicators,
-            substantial_change_threshold_quantile=substantial_change_threshold_quantile,
-            compute_timeseries_metrics=compute_timeseries_metrics,
-            compute_contributor_stability_metrics=compute_contributor_stability_metrics,
-            compute_contributor_absence_factor=compute_contributor_absence_factor,
-            compute_contributor_distribution_metrics=compute_contributor_distribution_metrics,
-            compute_repo_linter_metrics=compute_repo_linter_metrics,
-            compute_sloc_metrics=compute_sloc_metrics,
-            compute_tag_metrics=compute_tag_metrics,
-            compute_platform_metrics=compute_platform_metrics,
+            **kwargs,
         )
 
     @timeout(clone_timeout_seconds)
     def _clone_repository_with_timeout(
-        repo_path: str | Path | Repo,
+        repo_path: str | Path,
         to_path: str | Path,
     ) -> Repo:
         return Repo.clone_from(
@@ -344,13 +322,50 @@ def analyze_repository(
         ]
     ):
         with TemporaryDirectory() as tmpdir:
-            repo = _clone_repository_with_timeout(
-                repo_path=repo_path,
-                to_path=tmpdir,
-            )
+            try:
+                repo = _clone_repository_with_timeout(
+                    repo_path=repo_path,
+                    to_path=tmpdir,
+                )
+            except Exception as e:
+                return TrackedErrorResult(
+                    repo_path=repo_path,
+                    err=str(e),
+                    tb=traceback.format_exc(),
+                )
 
-            return _analyze_repository_with_timeout(
-                repo_path=repo,
+            try:
+                metrics = _analyze_repository_with_timeout(
+                    repo_path=repo,
+                    github_token=github_token,
+                    start_datetime=start_datetime,
+                    end_datetime=end_datetime,
+                    contributor_name_col=contributor_name_col,
+                    datetime_col=datetime_col,
+                    period_spans=period_spans,
+                    bot_names=bot_names,
+                    bot_email_indicators=bot_email_indicators,
+                    substantial_change_threshold_quantile=substantial_change_threshold_quantile,
+                    compute_timeseries_metrics=compute_timeseries_metrics,
+                    compute_contributor_stability_metrics=compute_contributor_stability_metrics,
+                    compute_contributor_absence_factor=compute_contributor_absence_factor,
+                    compute_contributor_distribution_metrics=compute_contributor_distribution_metrics,
+                    compute_repo_linter_metrics=compute_repo_linter_metrics,
+                    compute_sloc_metrics=compute_sloc_metrics,
+                    compute_tag_metrics=compute_tag_metrics,
+                    compute_platform_metrics=compute_platform_metrics,
+                )
+            except Exception as e:
+                return TrackedErrorResult(
+                    repo_path=repo_path,
+                    err=str(e),
+                    tb=traceback.format_exc(),
+                )
+
+    else:
+        try:
+            metrics = _analyze_repository_with_timeout(
+                repo_path=repo_path,
                 github_token=github_token,
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
@@ -369,24 +384,189 @@ def analyze_repository(
                 compute_tag_metrics=compute_tag_metrics,
                 compute_platform_metrics=compute_platform_metrics,
             )
+        except Exception as e:
+            return TrackedErrorResult(
+                repo_path=repo_path,
+                err=str(e),
+                tb=traceback.format_exc(),
+            )
 
-    return _analyze_repository_with_timeout(
-        repo_path=repo_path,
-        github_token=github_token,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        contributor_name_col=contributor_name_col,
-        datetime_col=datetime_col,
-        period_spans=period_spans,
-        bot_names=bot_names,
-        bot_email_indicators=bot_email_indicators,
-        substantial_change_threshold_quantile=substantial_change_threshold_quantile,
-        compute_timeseries_metrics=compute_timeseries_metrics,
-        compute_contributor_stability_metrics=compute_contributor_stability_metrics,
-        compute_contributor_absence_factor=compute_contributor_absence_factor,
-        compute_contributor_distribution_metrics=compute_contributor_distribution_metrics,
-        compute_repo_linter_metrics=compute_repo_linter_metrics,
-        compute_sloc_metrics=compute_sloc_metrics,
-        compute_tag_metrics=compute_tag_metrics,
-        compute_platform_metrics=compute_platform_metrics,
+    # Store the original path of the repo
+    if isinstance(metrics, dict):
+        metrics["repo_path"] = str(repo_path)
+
+    return metrics
+
+
+@dataclass
+class AnalyzeRepositoriesResults:
+    metrics_df: pl.DataFrame
+    errors_df: pl.DataFrame
+
+
+def _one_by_one_processing(
+    batch_repo_paths: list[str | Path],
+    github_token_cycler: Iterator[str | None],
+    **analyze_repository_kwargs: Any,
+) -> tuple[list[dict], list[TrackedErrorResult]]:
+    batch_results = []
+    batch_errors = []
+
+    # Analyze batch
+    for repo_path in batch_repo_paths:
+        log.info(f"Analyzing repository: {repo_path}")
+        result = analyze_repository(
+            repo_path=repo_path,
+            github_token=next(github_token_cycler),
+            **analyze_repository_kwargs,
+        )
+
+        if isinstance(result, TrackedErrorResult):
+            batch_errors.append(result.to_dict())
+        else:
+            batch_results.append(result)
+
+    return batch_results, batch_errors
+
+
+def analyze_repositories(  # noqa: C901
+    repo_paths: list[str | Path],
+    github_tokens: list[str | None] | str | Path | None = None,
+    cache_results_path: str | Path | None = None,
+    cache_errors_path: str | Path | None = None,
+    ignore_cached_results: bool = False,
+    batch_size: int | float = 10,
+    use_multiple_processes: bool = False,
+    n_processes: int | None = None,
+    use_coiled: bool = False,
+    coiled_kwargs: dict | None = None,
+    **analyze_repository_kwargs: Any,
+) -> AnalyzeRepositoriesResults:
+    # Cannot use multiple processes and coiled at the same time
+    if use_multiple_processes and use_coiled:
+        raise ValueError("Cannot use multiple processes and coiled at the same time.")
+
+    # Lowercase all repo paths for consistency
+    repo_paths = [str(rp).lower().strip() for rp in repo_paths]
+
+    # Check for prior cached results
+    if (
+        not ignore_cached_results
+        and cache_results_path is not None
+        and Path(cache_results_path).exists()
+    ):
+        log.info(f"Loading cached results from {cache_results_path}")
+        previously_processed_repo_metrics = pl.read_parquet(cache_results_path)
+        previously_processed_repo_paths = previously_processed_repo_metrics[
+            "repo_path"
+        ].to_list()
+        results = previously_processed_repo_metrics.to_dicts()
+    else:
+        previously_processed_repo_paths = []
+        results = []
+
+    # Check for prior errored results
+    if (
+        not ignore_cached_results
+        and cache_errors_path is not None
+        and Path(cache_errors_path).exists()
+    ):
+        log.info(f"Loading cached errors from {cache_errors_path}")
+        previously_errored_repos = pl.read_parquet(cache_errors_path)
+        previously_processed_errors_repo_paths = previously_errored_repos[
+            "repo_path"
+        ].to_list()
+        errors = previously_errored_repos.to_dicts()
+    else:
+        previously_processed_errors_repo_paths = []
+        errors = []
+
+    # Combine previously processed repo paths and error repo paths
+    all_previously_processed_or_errored_repo_paths = {
+        *previously_processed_repo_paths,
+        *previously_processed_errors_repo_paths,
+    }
+
+    # Log the count of previously processed repos we are skipping
+    log.info(
+        f"Skipping {len(all_previously_processed_or_errored_repo_paths)} "
+        f"previously processed or errored repositories."
+    )
+
+    # Remove previously processed repos from repo_paths
+    to_process_repo_paths = [
+        rp
+        for rp in repo_paths
+        if rp not in all_previously_processed_or_errored_repo_paths
+    ]
+
+    # Prepare GitHub tokens
+    if github_tokens is None:
+        github_tokens = [None]
+    if isinstance(github_tokens, str):
+        # Doesn't look like a file path
+        # User provided a single token
+        if not Path(github_tokens).exists():
+            github_tokens = [github_tokens]
+
+    # Check for GitHub tokens file
+    if isinstance(github_tokens, (str, Path)):
+        # Read with gh tokens loader
+        gh_tokens_cycler = GitHubTokensCycler("path/to/tokens.yaml")
+    elif isinstance(github_tokens, list):
+        # Convert to token cycler
+        gh_tokens_cycler = cycle(github_tokens)
+    else:
+        raise ValueError(
+            "github_tokens must be None, a single str token,"
+            "a list of str tokens, or a str or path to a tokens file. "
+            f"Got: {type(github_tokens)}"
+        )
+
+    # Determine batch size
+    if isinstance(batch_size, float):
+        # Round to nearest int
+        int_batch_size = round(len(to_process_repo_paths) * batch_size)
+    else:
+        int_batch_size = batch_size
+
+    # Calculate total number of batches
+    total_batches = (len(to_process_repo_paths) + int_batch_size - 1) // int_batch_size
+
+    # Process in batches
+    for batch_start_idx in tqdm(
+        range(0, len(to_process_repo_paths), int_batch_size),
+        total=total_batches,
+        desc="Processing repositories in batches",
+        unit="batch",
+    ):
+        # Get batch repo paths
+        batch_repo_paths = to_process_repo_paths[
+            batch_start_idx : batch_start_idx + int_batch_size
+        ]
+
+        # Use multiple processes
+        if use_multiple_processes:
+            pass
+        elif use_coiled:
+            pass
+        else:
+            batch_results, batch_errors = _one_by_one_processing(
+                batch_repo_paths=batch_repo_paths,
+                github_token_cycler=gh_tokens_cycler,
+                **analyze_repository_kwargs,
+            )
+
+        results.extend(batch_results)
+        errors.extend(batch_errors)
+
+        # Cache intermediate results
+        if cache_results_path is not None:
+            pl.DataFrame(results).write_parquet(cache_results_path)
+        if cache_errors_path is not None:
+            pl.DataFrame(errors).write_parquet(cache_errors_path)
+
+    return AnalyzeRepositoriesResults(
+        metrics_df=pl.DataFrame(results),
+        errors_df=pl.DataFrame(errors),
     )
