@@ -105,6 +105,7 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
         total=total_commit_count,
         desc="Parsing commits",
         unit="commit",
+        leave=False,
     ):
         authored_datetime = datetime.fromtimestamp(commit.authored_date)
         committed_datetime = datetime.fromtimestamp(commit.committed_date)

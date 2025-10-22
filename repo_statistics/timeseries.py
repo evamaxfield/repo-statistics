@@ -65,7 +65,7 @@ def get_periods_changed(
     # Iterate over periods and record binary or lines changed count
     current_start_dt = start_datetime_dt
     results: dict[str, list[int]] = {}
-    for _ in tqdm(range(n_tds), desc="Processing change periods"):
+    for _ in tqdm(range(n_tds), desc="Processing change periods", leave=False):
         # Get the subset of commits in this period
         commit_subset = commits_df.filter(
             pl.col(datetime_col).is_between(

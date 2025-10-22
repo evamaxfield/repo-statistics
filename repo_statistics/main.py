@@ -1,23 +1,22 @@
 #!/usr/bin/env python
 
-from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
 from git import Repo
 
-from . import commits, timeseries, contributors, documentation, source, platform
+from . import commits, contributors, documentation, platform, source, timeseries
 
 ###############################################################################
 
 
-def analyze_repository(
+def analyze_repository(  # noqa: C901
     repo_path: str | Path | Repo,
     github_token: str | None = None,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    period_spans: list[str] = ["1 week", "4 weeks"],
+    period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
@@ -59,13 +58,15 @@ def analyze_repository(
                 all_metrics[f"{period_span}_{key}"] = value
 
         if compute_contributor_stability_metrics:
-            contributor_stability_metrics = contributors.compute_contributor_stability_metrics(
-                commits_df=commits_df,
-                period_span=period_span,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
-                contributor_name_col=contributor_name_col,
-                datetime_col=datetime_col,
+            contributor_stability_metrics = (
+                contributors.compute_contributor_stability_metrics(
+                    commits_df=commits_df,
+                    period_span=period_span,
+                    start_datetime=start_datetime,
+                    end_datetime=end_datetime,
+                    contributor_name_col=contributor_name_col,
+                    datetime_col=datetime_col,
+                )
             )
 
             for key, value in contributor_stability_metrics.to_dict().items():
@@ -73,24 +74,28 @@ def analyze_repository(
 
     # Compute other contributor metrics
     if compute_contributor_absence_factor:
-        contributor_absence_factor_metrics = contributors.compute_contributor_absence_factor(
-            commits_df=commits_df,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
-            contributor_name_col=contributor_name_col,
-            datetime_col=datetime_col,
+        contributor_absence_factor_metrics = (
+            contributors.compute_contributor_absence_factor(
+                commits_df=commits_df,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                contributor_name_col=contributor_name_col,
+                datetime_col=datetime_col,
+            )
         )
 
         all_metrics.update(contributor_absence_factor_metrics.to_dict())
 
     # Compute contributor distribution metrics
     if compute_contributor_distribution_metrics:
-        contributor_distribution_metrics = contributors.compute_contributor_distribution_metrics(
-            per_file_commit_deltas_df=per_file_commit_deltas_df,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
-            contributor_name_col=contributor_name_col,
-            datetime_col=datetime_col,
+        contributor_distribution_metrics = (
+            contributors.compute_contributor_distribution_metrics(
+                per_file_commit_deltas_df=per_file_commit_deltas_df,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                contributor_name_col=contributor_name_col,
+                datetime_col=datetime_col,
+            )
         )
 
         all_metrics.update(contributor_distribution_metrics.to_dict())
@@ -106,7 +111,7 @@ def analyze_repository(
 
         # TODO: add in documentation total (sum of binary results)
         all_metrics.update(repo_linter_results.to_dict())
-    
+
     # Compute SLOC metrics
     if compute_sloc_metrics:
         sloc_results = source.compute_sloc_metrics(

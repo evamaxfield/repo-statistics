@@ -107,7 +107,7 @@ def compute_contributor_absence_factor(
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
-) -> int:
+) -> ContributorAbsenceFactorMetrics:
     # Parse datetimes and filter commits to range
     commits_df, _, _ = filter_changes_to_dt_range(
         changes_df=commits_df,
