@@ -340,3 +340,31 @@ def filter_changes_to_dt_range(
     )
 
     return filtered_changes_df, start_datetime_dt, end_datetime_dt
+
+
+def get_commit_hash_for_target_datetime(
+    commits_df: pl.DataFrame,
+    target_datetime: str | date | datetime,
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
+) -> str:
+    # Filter changes to target datetime if provided
+    commits_df, _, _ = filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=target_datetime,
+        end_datetime=target_datetime,
+        datetime_col=datetime_col,
+    )
+
+    # Get the latest commit datetime in the filtered commits_df
+    if commits_df.height == 0:
+        raise ValueError(
+            "No commits found for the specified datetime in the repository history."
+        )
+
+    latest_commit_hexsha = commits_df.sort(datetime_col, descending=True)[
+        "commit_hash"
+    ][0]
+
+    return latest_commit_hexsha

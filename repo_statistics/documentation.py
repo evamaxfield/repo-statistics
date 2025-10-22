@@ -3,12 +3,16 @@
 import json
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
+import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
 from .data import DATA_FILES_DIR
+from .utils import get_commit_hash_for_target_datetime
 
 ###############################################################################
 
@@ -176,39 +180,61 @@ class RepoLinterResults(DataClassJsonMixin):
 
 def process_with_repo_linter(
     repo_path: str | Path | Repo,
+    commits_df: pl.DataFrame,
+    target_datetime: str | date | datetime | None = None,
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
 ) -> RepoLinterResults:
+    # Get Repo object from path if necessary
     if isinstance(repo_path, Repo):
         repo = repo_path
     else:
         repo = Repo(repo_path)
 
-    # Load the ruleset
-    with open(REPO_LINTER_RULESET_PATH) as open_file:
-        repo_linter_full_ruleset_data = json.load(open_file)
+    # Get the latest commit hexsha for the target datetime
+    latest_commit_hexsha = get_commit_hash_for_target_datetime(
+        commits_df=commits_df,
+        target_datetime=target_datetime,
+        datetime_col=datetime_col,
+    )
 
-    # Get the rules
-    repo_linter_rules = repo_linter_full_ruleset_data["rules"]
+    # Try to checkout the repo to that commit
+    try:
+        # Checkout the repo to the latest commit datetime
+        repo.git.checkout(latest_commit_hexsha)
 
-    # Process each rule
-    rule_results = {}
-    for rule_name, rule_full_details in repo_linter_rules.items():
-        # Unpack full details to get rule type and rule details
-        rule_type = rule_full_details["rule"]["type"]
-        rule_details = rule_full_details["rule"]["options"]
+        # Load the ruleset
+        with open(REPO_LINTER_RULESET_PATH) as open_file:
+            repo_linter_full_ruleset_data = json.load(open_file)
 
-        # Process rule
-        rule_result = _process_repo_linter_rule(
-            repo=repo,
-            rule_type=rule_type,
-            rule_details=rule_details,
+        # Get the rules
+        repo_linter_rules = repo_linter_full_ruleset_data["rules"]
+
+        # Process each rule
+        rule_results = {}
+        for rule_name, rule_full_details in repo_linter_rules.items():
+            # Unpack full details to get rule type and rule details
+            rule_type = rule_full_details["rule"]["type"]
+            rule_details = rule_full_details["rule"]["options"]
+
+            # Process rule
+            rule_result = _process_repo_linter_rule(
+                repo=repo,
+                rule_type=rule_type,
+                rule_details=rule_details,
+            )
+
+            # Add to rule results
+            rule_results[rule_name] = rule_result
+
+        return RepoLinterResults(
+            **{
+                rule_name.replace("-", "_"): rule_result
+                for rule_name, rule_result in rule_results.items()
+            }
         )
 
-        # Add to rule results
-        rule_results[rule_name] = rule_result
-
-    return RepoLinterResults(
-        **{
-            rule_name.replace("-", "_"): rule_result
-            for rule_name, rule_result in rule_results.items()
-        }
-    )
+    finally:
+        # Checkout back to HEAD
+        repo.git.checkout("HEAD")
