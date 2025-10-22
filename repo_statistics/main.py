@@ -288,8 +288,8 @@ def analyze_repository(
     compute_sloc_metrics: bool = True,
     compute_tag_metrics: bool = True,
     compute_platform_metrics: bool = True,
-    clone_timeout_seconds: int = 120,
-    analyze_timeout_seconds: int = 300,
+    clone_timeout_seconds: int = 60,
+    analyze_timeout_seconds: int = 600,
 ) -> dict | TrackedErrorResult:
     # Wrap private analyze function with timeout
     @timeout(analyze_timeout_seconds)
@@ -413,7 +413,12 @@ def _one_by_one_processing(
     batch_errors = []
 
     # Analyze batch
-    for repo_path in batch_repo_paths:
+    for repo_path in tqdm(
+        batch_repo_paths,
+        desc="Analyzing repositories",
+        unit="repo",
+        leave=False,
+    ):
         log.info(f"Analyzing repository: {repo_path}")
         result = analyze_repository(
             repo_path=repo_path,
@@ -429,6 +434,55 @@ def _one_by_one_processing(
     return batch_results, batch_errors
 
 
+def _multiple_threads_processing(
+    batch_repo_paths: list[str | Path],
+    github_token_cycler: Iterator[str | None],
+    n_threads: int | None = None,
+    **analyze_repository_kwargs: Any,
+) -> tuple[list[dict], list[TrackedErrorResult]]:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    batch_results = []
+    batch_errors = []
+
+    with ThreadPoolExecutor(max_workers=n_threads) as executor:
+        future_to_repo_path = {
+            executor.submit(
+                analyze_repository,
+                repo_path=repo_path,
+                github_token=next(github_token_cycler),
+                **analyze_repository_kwargs,
+            ): repo_path
+            for repo_path in batch_repo_paths
+        }
+
+        for future in tqdm(
+            as_completed(future_to_repo_path),
+            total=len(batch_repo_paths),
+            desc="Analyzing repositories (multi-process)",
+            unit="repo",
+            leave=False,
+        ):
+            repo_path = future_to_repo_path[future]
+            try:
+                result = future.result()
+                if isinstance(result, TrackedErrorResult):
+                    batch_errors.append(result.to_dict())
+                else:
+                    batch_results.append(result)
+
+            except Exception as e:
+                batch_errors.append(
+                    TrackedErrorResult(
+                        repo_path=repo_path,
+                        err=str(e),
+                        tb=traceback.format_exc(),
+                    ).to_dict()
+                )
+
+    return batch_results, batch_errors
+
+
 def analyze_repositories(  # noqa: C901
     repo_paths: list[str | Path],
     github_tokens: list[str | None] | str | Path | None = None,
@@ -436,14 +490,14 @@ def analyze_repositories(  # noqa: C901
     cache_errors_path: str | Path | None = None,
     ignore_cached_results: bool = False,
     batch_size: int | float = 10,
-    use_multiple_processes: bool = False,
-    n_processes: int | None = None,
+    use_multithreading: bool = False,
+    n_threads: int | None = None,
     use_coiled: bool = False,
     coiled_kwargs: dict | None = None,
     **analyze_repository_kwargs: Any,
 ) -> AnalyzeRepositoriesResults:
     # Cannot use multiple processes and coiled at the same time
-    if use_multiple_processes and use_coiled:
+    if use_multithreading and use_coiled:
         raise ValueError("Cannot use multiple processes and coiled at the same time.")
 
     # Lowercase all repo paths for consistency
@@ -545,11 +599,20 @@ def analyze_repositories(  # noqa: C901
             batch_start_idx : batch_start_idx + int_batch_size
         ]
 
-        # Use multiple processes
-        if use_multiple_processes:
-            pass
+        # Use multiple threads
+        if use_multithreading:
+            batch_results, batch_errors = _multiple_threads_processing(
+                batch_repo_paths=batch_repo_paths,
+                github_token_cycler=gh_tokens_cycler,
+                n_threads=n_threads,
+                **analyze_repository_kwargs,
+            )
+
+        # Use coiled
         elif use_coiled:
             pass
+
+        # Single process
         else:
             batch_results, batch_errors = _one_by_one_processing(
                 batch_repo_paths=batch_repo_paths,
@@ -561,9 +624,9 @@ def analyze_repositories(  # noqa: C901
         errors.extend(batch_errors)
 
         # Cache intermediate results
-        if cache_results_path is not None:
+        if cache_results_path is not None and len(results) > 0:
             pl.DataFrame(results).write_parquet(cache_results_path)
-        if cache_errors_path is not None:
+        if cache_errors_path is not None and len(errors) > 0:
             pl.DataFrame(errors).write_parquet(cache_errors_path)
 
     return AnalyzeRepositoriesResults(

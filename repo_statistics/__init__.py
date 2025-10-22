@@ -10,4 +10,4 @@ except PackageNotFoundError:
 __author__ = "Eva Maxfield Brown"
 __email__ = "evamaxfieldbrown@gmail.com"
 
-from .main import analyze_repository  # noqa: F401
+from .main import analyze_repositories, analyze_repository  # noqa: F401
