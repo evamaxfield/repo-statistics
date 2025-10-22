@@ -232,8 +232,12 @@ class TimeseriesMetrics(DataClassJsonMixin):
 
 
 def _compute_entropy(arr: list[int]) -> float:
+    arr_sum = np.sum(arr)
+    if arr_sum == 0:
+        return np.nan
+
     return entropy(
-        arr / np.sum(arr),
+        np.array(arr) / arr_sum,
         base=2,
     )
 

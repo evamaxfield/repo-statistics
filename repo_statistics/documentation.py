@@ -162,6 +162,7 @@ def _process_repo_linter_rule(
 
 @dataclass
 class RepoLinterResults(DataClassJsonMixin):
+    documentation_checks_passed_count: int
     license_file_exists: bool
     readme_file_exists: bool
     contributing_file_exists: bool
@@ -229,10 +230,13 @@ def process_with_repo_linter(
             rule_results[rule_name] = rule_result
 
         return RepoLinterResults(
+            documentation_checks_passed_count=sum(
+                int(value) for value in rule_results.values()
+            ),
             **{
                 rule_name.replace("-", "_"): rule_result
                 for rule_name, rule_result in rule_results.items()
-            }
+            },
         )
 
     finally:

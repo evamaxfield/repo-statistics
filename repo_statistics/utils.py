@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from numbers import Number
@@ -7,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import polars as pl
+from git import Repo
 
 from . import constants
 from .data import FILE_FORMATS_TO_DTYPE_DF
@@ -368,3 +371,45 @@ def get_commit_hash_for_target_datetime(
     ][0]
 
     return latest_commit_hexsha
+
+
+@dataclass
+class ParsedRepo:
+    repo: Repo
+    owner: str
+    name: str
+
+
+def parse_repo_from_path_or_url(
+    repo_path: str | Path | Repo,
+) -> ParsedRepo:
+    # Get Repo object from path if necessary
+    if isinstance(repo_path, Repo):
+        repo = repo_path
+    else:
+        repo = Repo(repo_path)
+
+    # Get the origin / remote URL
+    remote_url = repo.remote().url
+
+    # Example remote URL format:
+    # git@github.com:evamaxfield/rs-graph.git
+    # RegEx parse to get owner and repo name
+    parsed_owner_and_name = re.match(
+        r"(?:git@github\.com:|https://github\.com/)(?P<owner>[^/]+)/(?P<repo>.+)",
+        remote_url,
+    )
+    if parsed_owner_and_name is None:
+        raise ValueError(
+            f"Could not parse GitHub owner and repo name from remote URL: {remote_url}"
+        )
+
+    # Extract owner and repo name
+    repo_owner = parsed_owner_and_name.group("owner")
+    repo_name = parsed_owner_and_name.group("repo").removesuffix(".git")
+
+    return ParsedRepo(
+        repo=repo,
+        owner=repo_owner,
+        name=repo_name,
+    )

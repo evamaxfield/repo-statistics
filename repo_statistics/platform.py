@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import logging
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +9,8 @@ import backoff
 from dataclasses_json import DataClassJsonMixin
 from ghapi.all import GhApi
 from git import Repo
+
+from .utils import parse_repo_from_path_or_url
 
 ###############################################################################
 
@@ -74,33 +75,12 @@ def compute_platform_metrics(
     repo_path: str | Path | Repo,
     github_token: str | None,
 ) -> PlatformMetrics:
-    # Get Repo object from path if necessary
-    if isinstance(repo_path, Repo):
-        repo = repo_path
-    else:
-        repo = Repo(repo_path)
-
-    # Get the origin / remote URL
-    remote_url = repo.remote().url
-
-    # Example remote URL format:
-    # git@github.com:evamaxfield/rs-graph.git
-    # RegEx parse to get owner and repo name
-    parsed_owner_and_name = re.match(
-        r"(?:git@github\.com:|https://github\.com/)(?P<owner>[^/]+)/(?P<repo>.+)",
-        remote_url,
-    )
-    if parsed_owner_and_name is None:
-        raise ValueError(
-            f"Could not parse GitHub owner and repo name from remote URL: {remote_url}"
-        )
-
-    repo_owner = parsed_owner_and_name.group("owner")
-    repo_name = parsed_owner_and_name.group("repo").removesuffix(".git")
+    # Parse repo info
+    parsed_repo = parse_repo_from_path_or_url(repo_path=repo_path)
 
     # Request platform metrics with backoff
     return _request_platform_metrics_with_backoff(
         github_token=github_token,
-        repo_owner=repo_owner,
-        repo_name=repo_name,
+        repo_owner=parsed_repo.owner,
+        repo_name=parsed_repo.name,
     )
