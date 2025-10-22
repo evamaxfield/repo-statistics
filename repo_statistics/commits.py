@@ -3,12 +3,14 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 from tqdm import tqdm
 
+from .constants import FileTypes
 from .utils import get_linguist_file_type
 
 ###############################################################################
@@ -253,3 +255,142 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
         per_file_commit_deltas=pl.DataFrame(per_file_commit_deltas),
         commit_summaries=pl.DataFrame(per_commit_summaries),
     )
+
+
+def normalize_changes_df_and_remove_bot_changes(
+    changes_df: pl.DataFrame,
+    contributor_name_cols: tuple[str, ...] = ("committer_name", "author_name"),
+    contributor_email_cols: tuple[str, ...] = ("committer_email", "author_email"),
+    bot_names: tuple[str, ...] | None = ("dependabot", "github"),
+    bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
+) -> tuple[pl.DataFrame, int]:
+    # Lower case and strip all author and committer names and emails
+    for contributor_name_col in contributor_name_cols:
+        changes_df = changes_df.with_columns(
+            pl.col(contributor_name_col)
+            .str.to_lowercase()
+            .str.strip_chars()
+            .alias(contributor_name_col)
+        )
+    for contributor_email_col in contributor_email_cols:
+        changes_df = changes_df.with_columns(
+            pl.col(contributor_email_col)
+            .str.to_lowercase()
+            .str.strip_chars()
+            .alias(contributor_email_col)
+        )
+
+    # Remove bot changes
+    before_drop_count = len(changes_df)
+    if bot_names is not None:
+        changes_df = changes_df.filter(
+            changes_df["committer_name"].is_in(bot_names or []).not_()
+        )
+    if bot_email_indicators is not None:
+        changes_df = changes_df.filter(
+            changes_df["committer_name"].str.contains("[bot]", literal=True).not_()
+        )
+
+    after_drop_count = len(changes_df)
+    dropped_count = before_drop_count - after_drop_count
+
+    return changes_df, dropped_count
+
+
+@dataclass
+class ImportantChangeDatesResults(DataClassJsonMixin):
+    total_initial_change_datetime: str | None
+    total_most_recent_change_datetime: str | None
+    total_most_recent_substantial_change_datetime: str | None
+    programming_initial_change_datetime: str | None
+    programming_most_recent_change_datetime: str | None
+    programming_most_recent_substantial_change_datetime: str | None
+    markup_initial_change_datetime: str | None
+    markup_most_recent_change_datetime: str | None
+    markup_most_recent_substantial_change_datetime: str | None
+    prose_initial_change_datetime: str | None
+    prose_most_recent_change_datetime: str | None
+    prose_most_recent_substantial_change_datetime: str | None
+    data_initial_change_datetime: str | None
+    data_most_recent_change_datetime: str | None
+    data_most_recent_substantial_change_datetime: str | None
+    unknown_initial_change_datetime: str | None
+    unknown_most_recent_change_datetime: str | None
+    unknown_most_recent_substantial_change_datetime: str | None
+
+
+def compute_important_change_dates(
+    commits_df: pl.DataFrame,
+    datetime_col: Literal[
+        "authored_datetime", "committed_datetime"
+    ] = "authored_datetime",
+    substantial_change_threshold_quantile: float = 0.1,
+) -> ImportantChangeDatesResults:
+    change_date_results: dict[str, str | None] = {}
+    for file_subset in ["total", *[ft.value for ft in FileTypes]]:
+        # Get subset of changes that are relevant to this file type
+        subset_df = commits_df.filter(commits_df[f"{file_subset}_lines_changed"] > 0)
+        if len(subset_df) == 0:
+            change_date_results[f"{file_subset}_initial_change_datetime"] = None
+            change_date_results[f"{file_subset}_most_recent_change_datetime"] = None
+            change_date_results[
+                f"{file_subset}_most_recent_substantial_change_datetime"
+            ] = None
+            continue
+
+        # Find initial change datetime
+        initial_change_datetime = subset_df[datetime_col].min()
+
+        # Find most recent commit datetime
+        most_recent_change_datetime = subset_df[datetime_col].max()
+
+        # Find threshold of lines changed
+        lines_change_target = subset_df[f"{file_subset}_lines_changed"].quantile(
+            substantial_change_threshold_quantile,
+            interpolation="nearest",
+        )
+
+        # Filter subset to changes with at least that many lines changed
+        substantial_changes_df = subset_df.filter(
+            subset_df[f"{file_subset}_lines_changed"] >= lines_change_target
+        )
+        # Sort substantial changes by datetime descending and get most recent
+        most_recent_substantial_change_datetime: datetime = substantial_changes_df.sort(
+            by=datetime_col,
+            descending=True,
+        )[datetime_col][0]
+
+        # Store results
+        change_date_results[f"{file_subset}_initial_change_datetime"] = (
+            initial_change_datetime.isoformat()
+        )
+        change_date_results[f"{file_subset}_most_recent_change_datetime"] = (
+            most_recent_change_datetime.isoformat()
+        )
+        change_date_results[
+            f"{file_subset}_most_recent_substantial_change_datetime"
+        ] = most_recent_substantial_change_datetime.isoformat()
+
+    return ImportantChangeDatesResults(**change_date_results)
+
+
+@dataclass
+class CommitCountsResults(DataClassJsonMixin):
+    total_commit_count: int
+    programming_commit_count: int
+    markup_commit_count: int
+    prose_commit_count: int
+    data_commit_count: int
+    unknown_commit_count: int
+
+
+def compute_commit_counts(
+    commits_df: pl.DataFrame,
+) -> CommitCountsResults:
+    results = {}
+    for file_subset in ["total", *[ft.value for ft in FileTypes]]:
+        results[f"{file_subset}_commit_count"] = len(
+            commits_df.filter(commits_df[f"{file_subset}_lines_changed"] > 0)
+        )
+
+    return CommitCountsResults(**results)
