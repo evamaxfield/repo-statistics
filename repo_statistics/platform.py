@@ -1,17 +1,22 @@
 #!/usr/bin/env python
 
+import logging
+import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
-import time
-import re
 
 import backoff
 from dataclasses_json import DataClassJsonMixin
+from ghapi.all import GhApi
 from git import Repo
 
-from ghapi.all import GhApi
+###############################################################################
+
+log = logging.getLogger(__name__)
 
 ###############################################################################
+
 
 @dataclass
 class PlatformMetrics(DataClassJsonMixin):
@@ -32,14 +37,25 @@ def _request_platform_metrics_with_backoff(
     repo_owner: str,
     repo_name: str,
 ) -> PlatformMetrics:
-    # Get repo data
+    # Init API
     if github_token is not None:
         api = GhApi(token=github_token)
     else:
         api = GhApi()
 
-    # Get repo data
+    # Sleep to avoid rate limits
+    if github_token is None:
+        # Alert that we are unauthenticated and need to be careful about rate limits
+        log.warning(
+            "Unauthenticated GitHub API requests have string rate limits. "
+            "You will likely hit these limits if you are using this library "
+            "to process multiple repositories quickly. "
+            "Consider providing a GitHub token to increase your rate limits."
+        )
+
     time.sleep(0.85)
+
+    # Request
     repo_data = api.repos.get(
         owner=repo_owner,
         repo=repo_name,
@@ -52,6 +68,7 @@ def _request_platform_metrics_with_backoff(
         open_issues_count=repo_data["open_issues_count"],
         primary_programming_language=repo_data["language"],
     )
+
 
 def compute_platform_metrics(
     repo_path: str | Path | Repo,
@@ -77,7 +94,7 @@ def compute_platform_metrics(
         raise ValueError(
             f"Could not parse GitHub owner and repo name from remote URL: {remote_url}"
         )
-    
+
     repo_owner = parsed_owner_and_name.group("owner")
     repo_name = parsed_owner_and_name.group("repo").removesuffix(".git")
 
