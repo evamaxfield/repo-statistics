@@ -344,7 +344,7 @@ def filter_changes_to_dt_range(
 
 def get_commit_hash_for_target_datetime(
     commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime,
+    target_datetime: str | date | datetime | None,
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",

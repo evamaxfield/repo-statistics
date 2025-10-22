@@ -1,20 +1,21 @@
 #!/usr/bin/env python
 
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
-import subprocess
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
-from .utils import get_commit_hash_for_target_datetime, get_linguist_file_type
 from .constants import FileTypes
+from .utils import get_commit_hash_for_target_datetime, get_linguist_file_type
 
 ###############################################################################
+
 
 @dataclass
 class SLOCResults(DataClassJsonMixin):
@@ -126,7 +127,7 @@ def compute_sloc(
             unknown_lines_of_code=unknown_lines_of_code,
             unknown_lines_of_comments=unknown_lines_of_comments,
         )
-    
+
     finally:
         # Checkout back to HEAD
         repo.git.checkout("HEAD")
