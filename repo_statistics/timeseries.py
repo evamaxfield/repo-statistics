@@ -160,11 +160,6 @@ def get_change_spans(
 
 @dataclass
 class TimeseriesMetrics(DataClassJsonMixin):
-    # Metadata
-    period_span: str
-    start_datetime: str
-    end_datetime: str
-    datetime_column: str
     # Change existance metrics
     total_changed_binary_entropy: float
     total_changed_binary_variation: float
@@ -350,9 +345,5 @@ def compute_timeseries_metrics(
     )
 
     return TimeseriesMetrics(
-        period_span=timedelta_to_string(td),
-        start_datetime=start_datetime_dt.isoformat(),
-        end_datetime=end_datetime_dt.isoformat(),
-        datetime_column=datetime_col,
         **period_and_span_metrics,  # type: ignore
     )
