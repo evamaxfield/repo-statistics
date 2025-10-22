@@ -9,7 +9,16 @@ from typing import Literal
 from git import Repo
 from timeout_function_decorator import timeout
 
-from . import commits, contributors, documentation, platform, source, timeseries, utils
+from . import (
+    classification,
+    commits,
+    contributors,
+    documentation,
+    platform,
+    source,
+    timeseries,
+    utils,
+)
 
 ###############################################################################
 
@@ -231,6 +240,15 @@ def _analyze_repository(  # noqa: C901
         )
 
         all_metrics.update(platform_metrics.to_dict())
+
+        # Also get classification of project type
+        project_type_classification = classification.get_heuristic_project_type(
+            starsgazers_count=platform_metrics.stargazers_count,
+            total_contibutors_count=contributor_count_results.total_contributor_count,
+        )
+        all_metrics["project_type_heuristic_classification"] = (
+            project_type_classification
+        )
 
     return all_metrics
 
