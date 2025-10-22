@@ -193,7 +193,7 @@ def process_with_repo_linter(
         repo = Repo(repo_path)
 
     # Get the latest commit hexsha for the target datetime
-    latest_commit_hexsha = get_commit_hash_for_target_datetime(
+    target_hex = get_commit_hash_for_target_datetime(
         commits_df=commits_df,
         target_datetime=target_datetime,
         datetime_col=datetime_col,
@@ -202,7 +202,7 @@ def process_with_repo_linter(
     # Try to checkout the repo to that commit
     try:
         # Checkout the repo to the latest commit datetime
-        repo.git.checkout(latest_commit_hexsha)
+        repo.git.checkout(target_hex)
 
         # Load the ruleset
         with open(REPO_LINTER_RULESET_PATH) as open_file:
