@@ -43,12 +43,13 @@ repo_metrics = analyze_repository(
 
 # By default, all time-periods are considered
 # However, you can provide also provide a "start_datetime" and/or "end_datetime"
-repo_metrics = analyze_repository(
-    repo_path="https://github.com/bioio-devs/bioio",
-    start_datetime="2025-01-01",
-    end_datetime="2026-01-01",
-    compute_platform_metrics=False,
-)
+# TODO: Temporarily disabled
+# repo_metrics = analyze_repository(
+#     repo_path="https://github.com/bioio-devs/bioio",
+#     start_datetime="2025-01-01",
+#     end_datetime="2026-01-01",
+#     compute_platform_metrics=False,
+# )
 
 # We also ignore bot changes by default by looking for
 # "[bot]" account naming in commit information
