@@ -47,6 +47,23 @@ def get_periods_changed(
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
 
+    # Handle case where commits_df is empty
+    if len(commits_df) == 0:
+        return ChangePeriodResults(
+            total_changed_binary=[],
+            total_lines_changed_count=[],
+            programming_changed_binary=[],
+            programming_lines_changed_count=[],
+            markup_changed_binary=[],
+            markup_lines_changed_count=[],
+            prose_changed_binary=[],
+            prose_lines_changed_count=[],
+            data_changed_binary=[],
+            data_lines_changed_count=[],
+            unknown_changed_binary=[],
+            unknown_lines_changed_count=[],
+        )
+
     # Parse datetimes and filter commits to range
     commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
         changes_df=commits_df,
@@ -57,7 +74,9 @@ def get_periods_changed(
 
     # Calculate total periods
     change_duration = end_datetime_dt - start_datetime_dt
-    n_tds = math.ceil(change_duration / td)
+
+    # Always have at least one period
+    n_tds = max(math.ceil(change_duration / td), 1)
 
     # Iterate over periods and record binary or lines changed count
     current_start_dt = start_datetime_dt
@@ -105,13 +124,7 @@ def get_periods_changed(
         # Increment
         current_start_dt += td
 
-    try:
-        return ChangePeriodResults(**results)
-    except Exception as e:
-        print(e)
-        print("results", results)
-        print("commit_subset", commit_subset)
-        raise e
+    return ChangePeriodResults(**results)
 
 
 @dataclass
@@ -252,6 +265,9 @@ def _compute_entropy(arr: list[int]) -> float:
 
 
 def _compute_frac(arr: list[int]) -> float:
+    if len(arr) == 0:
+        return float("nan")
+
     return np.sum(arr) / len(arr)
 
 
@@ -278,7 +294,9 @@ def _compute_metrics_from_periods_change_results(
         # Compute
         period_and_span_metrics[f"{period_key}_entropy"] = _compute_entropy(arr)
         period_and_span_metrics[f"{period_key}_gini"] = _compute_gini(arr)
-        period_and_span_metrics[f"{period_key}_variation"] = variation(arr)
+        period_and_span_metrics[f"{period_key}_variation"] = (
+            variation(arr) if len(arr) > 1 else np.nan
+        )
         if "binary" in period_key:
             period_and_span_metrics[f"{period_key}_frac"] = _compute_frac(arr)
 

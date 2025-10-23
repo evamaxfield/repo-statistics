@@ -336,18 +336,16 @@ def filter_changes_to_dt_range(
     else:
         end_datetime_dt = parse_datetime(end_datetime)
 
+    # Fast exit if no data
+    if len(changes_df) == 0:
+        return changes_df, start_datetime_dt, end_datetime_dt
+
     # Filter by start
-    try:
-        if start_datetime_dt is not None:
-            changes_df = changes_df.filter(pl.col(datetime_col) >= start_datetime_dt)
-        # Filter by end
-        if end_datetime_dt is not None:
-            changes_df = changes_df.filter(pl.col(datetime_col) <= end_datetime_dt)
-    except Exception as e:
-        print(start_datetime_dt, end_datetime_dt)
-        print(changes_df[datetime_col])
-        print(e)
-        raise e
+    if start_datetime_dt is not None:
+        changes_df = changes_df.filter(pl.col(datetime_col) >= start_datetime_dt)
+    # Filter by end
+    if end_datetime_dt is not None:
+        changes_df = changes_df.filter(pl.col(datetime_col) <= end_datetime_dt)
 
     return changes_df, start_datetime_dt, end_datetime_dt
 
