@@ -628,6 +628,7 @@ def analyze_repositories(  # noqa: C901
     cache_results_path: str | Path | None = None,
     cache_errors_path: str | Path | None = None,
     ignore_cached_results: bool = False,
+    ignore_cached_errors: bool = False,
     batch_size: int | float = 10,
     use_multithreading: bool = False,
     n_threads: int | None = None,
@@ -660,7 +661,7 @@ def analyze_repositories(  # noqa: C901
 
     # Check for prior errored results
     if (
-        not ignore_cached_results
+        not ignore_cached_errors
         and cache_errors_path is not None
         and Path(cache_errors_path).exists()
     ):

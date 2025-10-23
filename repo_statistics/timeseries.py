@@ -101,7 +101,7 @@ def get_periods_changed(
             lines_changed_col = f"{file_subset}_lines_changed"
             return (
                 int(len(commit_subset.filter(pl.col(lines_changed_col) > 0)) > 0),
-                commit_subset[lines_changed_col].sum(),
+                commit_subset[lines_changed_col].sum() if len(commit_subset) > 0 else 0,
             )
 
         # Iter over each file subset
