@@ -7,6 +7,9 @@ import numpy as np
 
 def _compute_gini(arr: list[int]) -> float:
     # From: https://stackoverflow.com/a/61154922
+    if len(arr) == 0:
+        return np.nan
+
     np_arr = np.array(arr)
     diffsum = 0
     for i, xi in enumerate(np_arr[:-1], 1):
