@@ -2,7 +2,7 @@
 
 import json
 
-from repo_statistics import analyze_repository
+from repo_statistics import analyze_repositories, analyze_repository
 
 
 def test_full_analysis_and_storage_of_results() -> None:
@@ -62,5 +62,40 @@ def test_bot_filters() -> None:
         bot_names=None,
         # Keep all bots by ignoring email checks
         bot_email_indicators=None,
+        compute_platform_metrics=False,
+    )
+
+
+def test_multiple_repo_processing() -> None:
+    analyze_repositories(
+        repo_paths=[
+            "https://github.com/bioio-devs/bioio",
+            "https://github.com/bioio-devs/bioio-ome-zarr",
+            "https://github.com/evamaxfield/aws-grobid",
+            "https://github.com/evamaxfield/rs-graph",
+            "https://github.com/evamaxfield/repo-statistics",
+        ],
+        cache_results_path="pytest-repo-metrics.parquet",
+        cache_errors_path="pytest-repo-errors.parquet",
+        batch_size=2,
+        use_multithreading=True,
+        n_threads=2,
+        compute_platform_metrics=False,
+    )
+
+    # Should basically be a no-op if re-run
+    analyze_repositories(
+        repo_paths=[
+            "https://github.com/bioio-devs/bioio",
+            "https://github.com/bioio-devs/bioio-ome-zarr",
+            "https://github.com/evamaxfield/aws-grobid",
+            "https://github.com/evamaxfield/rs-graph",
+            "https://github.com/evamaxfield/repo-statistics",
+        ],
+        cache_results_path="pytest-repo-metrics.parquet",
+        cache_errors_path="pytest-repo-errors.parquet",
+        batch_size=2,
+        use_multithreading=True,
+        n_threads=2,
         compute_platform_metrics=False,
     )
