@@ -60,6 +60,9 @@ dev = [
   "jupyterlab",
   "pytest>=5.4.3",
 ]
+coiled = [
+  "coiled>=1,<2",
+]
 
 # entry points
 # https://peps.python.org/pep-0621/#entry-points

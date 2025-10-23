@@ -36,6 +36,25 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class CoiledConfig(DataClassJsonMixin):
+    keepalive: str = "5m"
+    cpu: tuple[int, int] = (2, 8)
+    memory: tuple[str, str] = ("4GiB", "12GiB")
+    disk_size: int = 24
+    n_workers: tuple[int, int] = (1, 8)
+    threads_per_worker: int = 1
+    spot_policy: str = "spot_with_fallback"
+    extra_kwargs: dict | None = None
+
+
+DEFAULT_COILED_KWARGS = CoiledConfig(
+    extra_kwargs={"package_sync_conda_extras": ["git"]}
+).to_dict()
+
+###############################################################################
+
+
+@dataclass
 class TrackedErrorResult(DataClassJsonMixin):
     repo_path: str | Path
     err: str
@@ -483,6 +502,99 @@ def _multiple_threads_processing(
     return batch_results, batch_errors
 
 
+def _coiled_processing(
+    batch_repo_paths: list[str | Path],
+    github_token_cycler: Iterator[str | None],
+    coiled_kwargs: dict | None = None,
+    **analyze_repository_kwargs: Any,
+) -> tuple[list[dict], list[TrackedErrorResult]]:
+    try:
+        import coiled
+    except ImportError as e:
+        raise ImportError(
+            "Coiled is not installed. Please install coiled to use this feature."
+        ) from e
+
+    batch_results = []
+    batch_errors = []
+
+    # Always add git to coiled kwargs
+    if coiled_kwargs is None:
+        prepped_coiled_kwargs = {
+            "extra_kwargs": {"package_sync_conda_extras": ["git"]},
+        }
+    else:
+        prepped_coiled_kwargs = coiled_kwargs
+        if "extra_kwargs" in prepped_coiled_kwargs:
+            if "package_sync_conda_extras" in prepped_coiled_kwargs["extra_kwargs"]:
+                if (
+                    "git"
+                    not in prepped_coiled_kwargs["extra_kwargs"][
+                        "package_sync_conda_extras"
+                    ]
+                ):
+                    prepped_coiled_kwargs["extra_kwargs"][
+                        "package_sync_conda_extras"
+                    ].append("git")
+            else:
+                prepped_coiled_kwargs["extra_kwargs"]["package_sync_conda_extras"] = [
+                    "git"
+                ]
+        else:
+            prepped_coiled_kwargs["extra_kwargs"] = {
+                "package_sync_conda_extras": ["git"]
+            }
+
+    # Create coiled function
+    @coiled.function(**prepped_coiled_kwargs)
+    def _analyze_repository_coiled(
+        repo_path: str | Path,
+        github_token: str | None = None,
+        **analyze_repository_kwargs: Any,
+    ) -> dict | TrackedErrorResult:
+        return analyze_repository(
+            repo_path=repo_path,
+            github_token=github_token,
+            **analyze_repository_kwargs,
+        )
+
+    # Submit coiled jobs
+    futures = {
+        _analyze_repository_coiled.submit(
+            repo_path=repo_path,
+            github_token=next(github_token_cycler),
+            **analyze_repository_kwargs,
+        ): repo_path
+        for repo_path in batch_repo_paths
+    }
+
+    for future in tqdm(
+        futures,
+        total=len(batch_repo_paths),
+        desc="Analyzing repositories (coiled)",
+        unit="repo",
+        leave=False,
+    ):
+        repo_path = futures[future]
+        try:
+            result = future.result()
+            if isinstance(result, TrackedErrorResult):
+                batch_errors.append(result.to_dict())
+            else:
+                batch_results.append(result)
+
+        except Exception as e:
+            batch_errors.append(
+                TrackedErrorResult(
+                    repo_path=repo_path,
+                    err=str(e),
+                    tb=traceback.format_exc(),
+                ).to_dict()
+            )
+
+    return batch_results, batch_errors
+
+
 def analyze_repositories(  # noqa: C901
     repo_paths: list[str | Path],
     github_tokens: list[str | None] | str | Path | None = None,
@@ -610,7 +722,12 @@ def analyze_repositories(  # noqa: C901
 
         # Use coiled
         elif use_coiled:
-            pass
+            batch_results, batch_errors = _coiled_processing(
+                batch_repo_paths=batch_repo_paths,
+                github_token_cycler=gh_tokens_cycler,
+                coiled_kwargs=coiled_kwargs,
+                **analyze_repository_kwargs,
+            )
 
         # Single process
         else:
