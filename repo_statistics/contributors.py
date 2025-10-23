@@ -46,7 +46,7 @@ def compute_contributor_counts(
     # Get unique contributors for each file type
     contributor_counts: dict[str, int] = {}
     for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
-        subset_df = commits_df.filter(commits_df[f"{file_subset}_lines_changed"] > 0)
+        subset_df = commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
         unique_contributors = subset_df[contributor_name_col].unique()
         contributor_counts[f"{file_subset}_contributor_count"] = len(
             unique_contributors

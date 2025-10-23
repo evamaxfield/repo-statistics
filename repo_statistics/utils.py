@@ -336,13 +336,20 @@ def filter_changes_to_dt_range(
     else:
         end_datetime_dt = parse_datetime(end_datetime)
 
-    # Filter changes to the specified time range
-    filtered_changes_df = changes_df.filter(
-        (changes_df[datetime_col] >= start_datetime_dt)
-        & (changes_df[datetime_col] <= end_datetime_dt)
-    )
+    # Filter by start
+    try:
+        if start_datetime_dt is not None:
+            changes_df = changes_df.filter(pl.col(datetime_col) >= start_datetime_dt)
+        # Filter by end
+        if end_datetime_dt is not None:
+            changes_df = changes_df.filter(pl.col(datetime_col) <= end_datetime_dt)
+    except Exception as e:
+        print(start_datetime_dt, end_datetime_dt)
+        print(changes_df[datetime_col])
+        print(e)
+        raise e
 
-    return filtered_changes_df, start_datetime_dt, end_datetime_dt
+    return changes_df, start_datetime_dt, end_datetime_dt
 
 
 def get_commit_hash_for_target_datetime(
@@ -361,9 +368,7 @@ def get_commit_hash_for_target_datetime(
 
     # Find the latest commit hash up to the target datetime
     target_datetime_dt = parse_datetime(target_datetime)
-    commits_up_to_target = commits_df.filter(
-        commits_df[datetime_col] <= target_datetime_dt
-    )
+    commits_up_to_target = commits_df.filter(pl.col(datetime_col) <= target_datetime_dt)
     latest_commit_hexsha = commits_up_to_target.sort(datetime_col, descending=True)[
         "commit_hash"
     ][0]

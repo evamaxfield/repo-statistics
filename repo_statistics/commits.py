@@ -284,11 +284,11 @@ def normalize_changes_df_and_remove_bot_changes(
     before_drop_count = len(changes_df)
     if bot_names is not None:
         changes_df = changes_df.filter(
-            changes_df["committer_name"].is_in(bot_names or []).not_()
+            pl.col("committer_name").is_in(bot_names or []).not_()
         )
     if bot_email_indicators is not None:
         changes_df = changes_df.filter(
-            changes_df["committer_name"].str.contains("[bot]", literal=True).not_()
+            pl.col("committer_name").str.contains("[bot]", literal=True).not_()
         )
 
     after_drop_count = len(changes_df)
@@ -339,7 +339,7 @@ def compute_important_change_dates(
     change_date_results: dict[str, str | None] = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:
         # Get subset of changes that are relevant to this file type
-        subset_df = commits_df.filter(commits_df[f"{file_subset}_lines_changed"] > 0)
+        subset_df = commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
         if len(subset_df) == 0:
             change_date_results[f"{file_subset}_initial_change_datetime"] = None
             change_date_results[f"{file_subset}_most_recent_change_datetime"] = None
@@ -362,7 +362,7 @@ def compute_important_change_dates(
 
         # Filter subset to changes with at least that many lines changed
         substantial_changes_df = subset_df.filter(
-            subset_df[f"{file_subset}_lines_changed"] >= lines_change_target
+            pl.col(f"{file_subset}_lines_changed") >= lines_change_target
         )
         # Sort substantial changes by datetime descending and get most recent
         most_recent_substantial_change_datetime: datetime = substantial_changes_df.sort(
@@ -413,7 +413,7 @@ def compute_commit_counts(
     results = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:
         results[f"{file_subset}_commit_count"] = len(
-            commits_df.filter(commits_df[f"{file_subset}_lines_changed"] > 0)
+            commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
         )
 
     return CommitCountsResults(**results)

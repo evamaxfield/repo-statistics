@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import os
 import traceback
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -132,6 +133,7 @@ def _analyze_repository(  # noqa: C901
     }
 
     # Normalize and drop bot changes
+    log.info("Removing bot changes")
     commits_df, bot_changes_count = commits.normalize_changes_df_and_remove_bot_changes(
         changes_df=commits_df,
         bot_names=bot_names,
@@ -145,6 +147,7 @@ def _analyze_repository(  # noqa: C901
     all_metrics["bot_changes_count"] = bot_changes_count
 
     # Compute commit counts
+    log.info("Computing commit counts")
     commit_count_results = commits.compute_commit_counts(
         commits_df=commits_df,
         start_datetime=start_datetime_dt,
@@ -154,6 +157,7 @@ def _analyze_repository(  # noqa: C901
     all_metrics.update(commit_count_results.to_dict())
 
     # Get important change dates
+    log.info("Computing important change dates")
     important_change_date_results = commits.compute_important_change_dates(
         commits_df=commits_df,
         start_datetime=start_datetime_dt,
@@ -164,6 +168,7 @@ def _analyze_repository(  # noqa: C901
     all_metrics.update(important_change_date_results.to_dict())
 
     # Compute contributor counts
+    log.info("Computing contributor counts")
     contributor_count_results = contributors.compute_contributor_counts(
         commits_df=commits_df,
         start_datetime=start_datetime_dt,
@@ -178,6 +183,7 @@ def _analyze_repository(  # noqa: C901
         period_span_key = period_span.replace(" ", "_")
 
         if compute_timeseries_metrics:
+            log.info(f"Computing timeseries metrics for period span: {period_span}")
             timeseries_metrics = timeseries.compute_timeseries_metrics(
                 commits_df=commits_df,
                 period_span=period_span,
@@ -190,6 +196,10 @@ def _analyze_repository(  # noqa: C901
                 all_metrics[f"{period_span_key}_{key}"] = value
 
         if compute_contributor_stability_metrics:
+            log.info(
+                f"Computing contributor stability metrics "
+                f"for period span: {period_span}"
+            )
             contributor_stability_metrics = (
                 contributors.compute_contributor_stability_metrics(
                     commits_df=commits_df,
@@ -206,6 +216,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute other contributor metrics
     if compute_contributor_absence_factor:
+        log.info("Computing contributor absence factor metrics")
         contributor_absence_factor_metrics = (
             contributors.compute_contributor_absence_factor(
                 commits_df=commits_df,
@@ -220,6 +231,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute contributor distribution metrics
     if compute_contributor_distribution_metrics:
+        log.info("Computing contributor distribution metrics")
         contributor_distribution_metrics = (
             contributors.compute_contributor_distribution_metrics(
                 per_file_commit_deltas_df=per_file_commit_deltas_df,
@@ -234,6 +246,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute repo linter metrics
     if compute_repo_linter_metrics:
+        log.info("Computing repo linter metrics")
         repo_linter_results = documentation.process_with_repo_linter(
             repo_path=repo_path,
             commits_df=commits_df,
@@ -245,6 +258,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute SLOC metrics
     if compute_sloc_metrics:
+        log.info("Computing SLOC metrics")
         sloc_results = source.compute_sloc_metrics(
             repo_path=repo_path,
             commits_df=commits_df,
@@ -256,6 +270,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute tag metrics
     if compute_tag_metrics:
+        log.info("Computing tag metrics")
         tag_metrics = source.compute_tag_metrics(
             repo_path=repo_path,
             commits_df=commits_df,
@@ -267,6 +282,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute platform metrics
     if compute_platform_metrics:
+        log.info("Computing platform metrics")
         platform_metrics = platform.compute_platform_metrics(
             repo_path=repo_path,
             github_token=github_token,
@@ -324,10 +340,17 @@ def analyze_repository(
         repo_path: str | Path,
         to_path: str | Path,
     ) -> Repo:
-        return Repo.clone_from(
+        # Do not ask for credentials interactively
+        os.environ["GIT_TERMINAL_PROMPT"] = "0"
+        repo = Repo.clone_from(
             repo_path,
             to_path=to_path,
         )
+
+        # Unset the env var
+        del os.environ["GIT_TERMINAL_PROMPT"]
+
+        return repo
 
     # Determine clone or path
     if isinstance(repo_path, str) and any(

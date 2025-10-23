@@ -13,17 +13,13 @@ from tqdm import tqdm
 
 from . import constants
 from .gini import _compute_gini
-from .utils import filter_changes_to_dt_range, parse_timedelta, timedelta_to_string
+from .utils import filter_changes_to_dt_range, parse_timedelta
 
 ###############################################################################
 
 
 @dataclass
 class ChangePeriodResults(DataClassJsonMixin):
-    period_span: str
-    start_datetime: str
-    end_datetime: str
-    datetime_column: str
     total_changed_binary: list[int]
     total_lines_changed_count: list[int]
     programming_changed_binary: list[int]
@@ -109,13 +105,12 @@ def get_periods_changed(
         # Increment
         current_start_dt += td
 
-    return ChangePeriodResults(
-        period_span=timedelta_to_string(td),
-        start_datetime=start_datetime_dt.isoformat(),
-        end_datetime=end_datetime_dt.isoformat(),
-        datetime_column=datetime_col,
-        **results,
-    )
+    try:
+        return ChangePeriodResults(**results)
+    except Exception as e:
+        print(e)
+        print("results", results)
+        print("commit_subset", commit_subset)
 
 
 @dataclass
