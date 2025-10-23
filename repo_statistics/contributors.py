@@ -78,6 +78,17 @@ def compute_contributor_stability_metrics(
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
 
+    # Fast exit if no commits
+    if len(commits_df) == 0:
+        return ContributorStabilityMetrics(
+            stable_contributors_count=0,
+            transient_contributors_count=0,
+            median_contribution_span_days=0,
+            mean_contribution_span_days=0,
+            normalized_median_contribution_span=0,
+            normalized_mean_contribution_span=0,
+        )
+
     # Parse datetimes and filter commits to range
     commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
         changes_df=commits_df,
@@ -155,6 +166,16 @@ def compute_contributor_absence_factor(
         end_datetime=end_datetime,
         datetime_col=datetime_col,
     )
+
+    if len(commits_df) == 0:
+        return ContributorAbsenceFactorMetrics(
+            total_contributor_absence_factor=0,
+            programming_contributor_absence_factor=0,
+            markup_contributor_absence_factor=0,
+            prose_contributor_absence_factor=0,
+            data_contributor_absence_factor=0,
+            unknown_contributor_absence_factor=0,
+        )
 
     # Create list of lines changed by file type
     all_file_subsets_lines_change_per_contrib: dict[str, list[int]] = {}
