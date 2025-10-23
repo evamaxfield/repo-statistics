@@ -12,6 +12,7 @@ from scipy.stats import entropy, variation
 from tqdm import tqdm
 
 from . import constants
+from .gini import _compute_gini
 from .utils import filter_changes_to_dt_range, parse_timedelta, timedelta_to_string
 
 ###############################################################################
@@ -162,35 +163,47 @@ def get_change_spans(
 class TimeseriesMetrics(DataClassJsonMixin):
     # Change existance metrics
     total_changed_binary_entropy: float
+    total_changed_binary_gini: float
     total_changed_binary_variation: float
     total_changed_binary_frac: float
     programming_changed_binary_entropy: float
+    programming_changed_binary_gini: float
     programming_changed_binary_variation: float
     programming_changed_binary_frac: float
     markup_changed_binary_entropy: float
+    markup_changed_binary_gini: float
     markup_changed_binary_variation: float
     markup_changed_binary_frac: float
     prose_changed_binary_entropy: float
+    prose_changed_binary_gini: float
     prose_changed_binary_variation: float
     prose_changed_binary_frac: float
     data_changed_binary_entropy: float
+    data_changed_binary_gini: float
     data_changed_binary_variation: float
     data_changed_binary_frac: float
     unknown_changed_binary_entropy: float
+    unknown_changed_binary_gini: float
     unknown_changed_binary_variation: float
     unknown_changed_binary_frac: float
     # Lines changed count metrics
     total_lines_changed_count_entropy: float
+    total_lines_changed_count_gini: float
     total_lines_changed_count_variation: float
     programming_lines_changed_count_entropy: float
+    programming_lines_changed_count_gini: float
     programming_lines_changed_count_variation: float
     markup_lines_changed_count_entropy: float
+    markup_lines_changed_count_gini: float
     markup_lines_changed_count_variation: float
     prose_lines_changed_count_entropy: float
+    prose_lines_changed_count_gini: float
     prose_lines_changed_count_variation: float
     data_lines_changed_count_entropy: float
+    data_lines_changed_count_gini: float
     data_lines_changed_count_variation: float
     unknown_lines_changed_count_entropy: float
+    unknown_lines_changed_count_gini: float
     unknown_lines_changed_count_variation: float
     # Change span metrics
     total_did_change_median_span: int
@@ -268,6 +281,7 @@ def _compute_metrics_from_periods_change_results(
 
         # Compute
         period_and_span_metrics[f"{period_key}_entropy"] = _compute_entropy(arr)
+        period_and_span_metrics[f"{period_key}_gini"] = _compute_gini(arr)
         period_and_span_metrics[f"{period_key}_variation"] = variation(arr)
         if "binary" in period_key:
             period_and_span_metrics[f"{period_key}_frac"] = _compute_frac(arr)
@@ -339,7 +353,7 @@ def compute_timeseries_metrics(
     )
 
     # Compute metrics from periods changed results
-    # 1. Entropy and variation of binary and lines changed count
+    # 1. Entropy, gini, and variation of binary and lines changed count
     # 2. Fraction of periods with changes (for binary only)
     # 3. Change spans (for binary only)
     #    - Median, mean, std of spans with changes

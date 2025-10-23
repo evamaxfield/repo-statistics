@@ -10,6 +10,7 @@ from dataclasses_json import DataClassJsonMixin
 from scipy.stats import entropy
 
 from . import constants
+from .gini import _compute_gini
 from .utils import filter_changes_to_dt_range, parse_timedelta
 
 ###############################################################################
@@ -196,7 +197,9 @@ def compute_contributor_absence_factor(
 @dataclass
 class SingleFileSubsetContributorDistributionMetrics(DataClassJsonMixin):
     contributors_per_file_entropy: float
+    contributors_per_file_gini: float
     files_per_contributor_entropy: float
+    files_per_contributor_gini: float
     simple_threshold_generalist_count: int
     simple_threshold_specialist_count: int
     median_threshold_generalist_count: int
@@ -208,7 +211,9 @@ class SingleFileSubsetContributorDistributionMetrics(DataClassJsonMixin):
 @dataclass
 class ContributorDistributionMetrics(DataClassJsonMixin):
     total_contributors_per_file_entropy: float
+    total_contributors_per_file_gini: float
     total_files_per_contributor_entropy: float
+    total_files_per_contributor_gini: float
     total_simple_threshold_generalist_count: int
     total_simple_threshold_specialist_count: int
     total_median_threshold_generalist_count: int
@@ -216,7 +221,9 @@ class ContributorDistributionMetrics(DataClassJsonMixin):
     total_twenty_fifth_percentile_threshold_generalist_count: int
     total_twenty_fifth_percentile_threshold_specialist_count: int
     programming_contributors_per_file_entropy: float
+    programming_contributors_per_file_gini: float
     programming_files_per_contributor_entropy: float
+    programming_files_per_contributor_gini: float
     programming_simple_threshold_generalist_count: int
     programming_simple_threshold_specialist_count: int
     programming_median_threshold_generalist_count: int
@@ -224,7 +231,9 @@ class ContributorDistributionMetrics(DataClassJsonMixin):
     programming_twenty_fifth_percentile_threshold_generalist_count: int
     programming_twenty_fifth_percentile_threshold_specialist_count: int
     markup_contributors_per_file_entropy: float
+    markup_contributors_per_file_gini: float
     markup_files_per_contributor_entropy: float
+    markup_files_per_contributor_gini: float
     markup_simple_threshold_generalist_count: int
     markup_simple_threshold_specialist_count: int
     markup_median_threshold_generalist_count: int
@@ -232,7 +241,9 @@ class ContributorDistributionMetrics(DataClassJsonMixin):
     markup_twenty_fifth_percentile_threshold_generalist_count: int
     markup_twenty_fifth_percentile_threshold_specialist_count: int
     prose_contributors_per_file_entropy: float
+    prose_contributors_per_file_gini: float
     prose_files_per_contributor_entropy: float
+    prose_files_per_contributor_gini: float
     prose_simple_threshold_generalist_count: int
     prose_simple_threshold_specialist_count: int
     prose_median_threshold_generalist_count: int
@@ -240,7 +251,9 @@ class ContributorDistributionMetrics(DataClassJsonMixin):
     prose_twenty_fifth_percentile_threshold_generalist_count: int
     prose_twenty_fifth_percentile_threshold_specialist_count: int
     data_contributors_per_file_entropy: float
+    data_contributors_per_file_gini: float
     data_files_per_contributor_entropy: float
+    data_files_per_contributor_gini: float
     data_simple_threshold_generalist_count: int
     data_simple_threshold_specialist_count: int
     data_median_threshold_generalist_count: int
@@ -248,7 +261,9 @@ class ContributorDistributionMetrics(DataClassJsonMixin):
     data_twenty_fifth_percentile_threshold_generalist_count: int
     data_twenty_fifth_percentile_threshold_specialist_count: int
     unknown_contributors_per_file_entropy: float
+    unknown_contributors_per_file_gini: float
     unknown_files_per_contributor_entropy: float
+    unknown_files_per_contributor_gini: float
     unknown_simple_threshold_generalist_count: int
     unknown_simple_threshold_specialist_count: int
     unknown_median_threshold_generalist_count: int
@@ -297,6 +312,10 @@ def _compute_single_file_subset_contributor_distribution(
             contributors_per_file_vector_as_prob, base=2
         )
 
+    # Compute Gini coefficients
+    contributors_per_file_gini = _compute_gini(contributors_per_file_vector)
+    files_per_contributor_gini = _compute_gini(files_per_contributor_vector)
+
     # Count specialists and generalists
     simple_threshold_generalist_count = 0
     simple_threshold_specialist_count = 0
@@ -335,7 +354,9 @@ def _compute_single_file_subset_contributor_distribution(
     # Compile metrics for this file subset
     return SingleFileSubsetContributorDistributionMetrics(
         contributors_per_file_entropy=contributors_per_file_entropy,
+        contributors_per_file_gini=contributors_per_file_gini,
         files_per_contributor_entropy=files_per_contributor_entropy,
+        files_per_contributor_gini=files_per_contributor_gini,
         simple_threshold_generalist_count=simple_threshold_generalist_count,
         simple_threshold_specialist_count=simple_threshold_specialist_count,
         median_threshold_generalist_count=median_threshold_generalist_count,
