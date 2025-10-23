@@ -678,7 +678,7 @@ def analyze_repositories(  # noqa: C901
     # Check for GitHub tokens file
     if isinstance(github_tokens, (str, Path)):
         # Read with gh tokens loader
-        gh_tokens_cycler = GitHubTokensCycler("path/to/tokens.yaml")
+        gh_tokens_cycler = GitHubTokensCycler(github_tokens)
     elif isinstance(github_tokens, list):
         # Convert to token cycler
         gh_tokens_cycler = cycle(github_tokens)
