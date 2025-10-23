@@ -51,7 +51,7 @@ jobs:
     - name: Install Dependencies
       run: |
         pip install uv
-        uv pip install --system .[test]
+        uv pip install --system .[dev]
       
     - name: Run Tests
       run: just test
