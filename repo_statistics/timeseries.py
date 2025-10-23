@@ -111,6 +111,7 @@ def get_periods_changed(
         print(e)
         print("results", results)
         print("commit_subset", commit_subset)
+        raise e
 
 
 @dataclass
