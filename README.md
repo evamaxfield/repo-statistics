@@ -51,12 +51,12 @@ repo_metrics = analyze_repository(
 )
 
 # We also ignore bot changes by default by looking for
-# dependabot / github / [bot] account naming in commit information
+# "[bot]" account naming in commit information
 # This can be disabled, or, changed as well
 repo_metrics = analyze_repository(
     repo_path="https://github.com/bioio-devs/bioio",
     # Keep all bots by ignoring name checks
-    bot_names=None,
+    bot_name_indicates=None,
     # Keep all bots by ignoring email checks
     bot_email_indicators=None,
     compute_platform_metrics=False,

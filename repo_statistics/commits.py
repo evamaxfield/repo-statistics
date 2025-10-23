@@ -259,37 +259,39 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
 
 def normalize_changes_df_and_remove_bot_changes(
     changes_df: pl.DataFrame,
+    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
+    contributor_email_col: Literal["author_email", "committer_email"] = "author_email",
     contributor_name_cols: tuple[str, ...] = ("committer_name", "author_name"),
     contributor_email_cols: tuple[str, ...] = ("committer_email", "author_email"),
-    bot_names: tuple[str, ...] | None = ("dependabot", "github"),
+    bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
     bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
 ) -> tuple[pl.DataFrame, int]:
     # Lower case and strip all author and committer names and emails
-    for contributor_name_col in contributor_name_cols:
+    for c_name_col in contributor_name_cols:
         changes_df = changes_df.with_columns(
-            pl.col(contributor_name_col)
-            .str.to_lowercase()
-            .str.strip_chars()
-            .alias(contributor_name_col)
+            pl.col(c_name_col).str.to_lowercase().str.strip_chars().alias(c_name_col)
         )
-    for contributor_email_col in contributor_email_cols:
+    for c_email_col in contributor_email_cols:
         changes_df = changes_df.with_columns(
-            pl.col(contributor_email_col)
-            .str.to_lowercase()
-            .str.strip_chars()
-            .alias(contributor_email_col)
+            pl.col(c_email_col).str.to_lowercase().str.strip_chars().alias(c_email_col)
         )
 
     # Remove bot changes
     before_drop_count = len(changes_df)
-    if bot_names is not None:
-        changes_df = changes_df.filter(
-            pl.col("committer_name").is_in(bot_names or []).not_()
-        )
+    if bot_name_indicators is not None:
+        for bot_name_indicator in bot_name_indicators:
+            changes_df = changes_df.filter(
+                pl.col(contributor_name_col)
+                .str.contains(bot_name_indicator, literal=True)
+                .not_()
+            )
     if bot_email_indicators is not None:
-        changes_df = changes_df.filter(
-            pl.col("committer_name").str.contains("[bot]", literal=True).not_()
-        )
+        for bot_email_indicator in bot_email_indicators:
+            changes_df = changes_df.filter(
+                pl.col(contributor_email_col)
+                .str.contains(bot_email_indicator, literal=True)
+                .not_()
+            )
 
     after_drop_count = len(changes_df)
     dropped_count = before_drop_count - after_drop_count
@@ -302,21 +304,39 @@ class ImportantChangeDatesResults(DataClassJsonMixin):
     total_initial_change_datetime: str | None
     total_most_recent_change_datetime: str | None
     total_most_recent_substantial_change_datetime: str | None
+    total_change_duration_days: int | None
+    total_change_duration_to_most_recent_substantial_days: int | None
+    total_change_duration_from_substantial_to_most_recent_days: int | None
     programming_initial_change_datetime: str | None
     programming_most_recent_change_datetime: str | None
     programming_most_recent_substantial_change_datetime: str | None
+    programming_change_duration_to_most_recent_substantial_days: int | None
+    programming_change_duration_from_substantial_to_most_recent_days: int | None
+    programming_change_duration_days: int | None
     markup_initial_change_datetime: str | None
     markup_most_recent_change_datetime: str | None
     markup_most_recent_substantial_change_datetime: str | None
+    markup_change_duration_days: int | None
+    markup_change_duration_to_most_recent_substantial_days: int | None
+    markup_change_duration_from_substantial_to_most_recent_days: int | None
     prose_initial_change_datetime: str | None
     prose_most_recent_change_datetime: str | None
     prose_most_recent_substantial_change_datetime: str | None
+    prose_change_duration_days: int | None
+    prose_change_duration_to_most_recent_substantial_days: int | None
+    prose_change_duration_from_substantial_to_most_recent_days: int | None
     data_initial_change_datetime: str | None
     data_most_recent_change_datetime: str | None
     data_most_recent_substantial_change_datetime: str | None
+    data_change_duration_days: int | None
+    data_change_duration_to_most_recent_substantial_days: int | None
+    data_change_duration_from_substantial_to_most_recent_days: int | None
     unknown_initial_change_datetime: str | None
     unknown_most_recent_change_datetime: str | None
     unknown_most_recent_substantial_change_datetime: str | None
+    unknown_change_duration_days: int | None
+    unknown_change_duration_to_most_recent_substantial_days: int | None
+    unknown_change_duration_from_substantial_to_most_recent_days: int | None
 
 
 def compute_important_change_dates(
@@ -336,7 +356,7 @@ def compute_important_change_dates(
     #     datetime_col=datetime_col,
     # )
 
-    change_date_results: dict[str, str | None] = {}
+    change_date_results: dict[str, str | int | None] = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:
         # Get subset of changes that are relevant to this file type
         subset_df = commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
@@ -345,6 +365,13 @@ def compute_important_change_dates(
             change_date_results[f"{file_subset}_most_recent_change_datetime"] = None
             change_date_results[
                 f"{file_subset}_most_recent_substantial_change_datetime"
+            ] = None
+            change_date_results[f"{file_subset}_change_duration_days"] = None
+            change_date_results[
+                f"{file_subset}_change_duration_to_most_recent_substantial_days"
+            ] = None
+            change_date_results[
+                f"{file_subset}_change_duration_from_substantial_to_most_recent_days"
             ] = None
             continue
 
@@ -381,7 +408,27 @@ def compute_important_change_dates(
             f"{file_subset}_most_recent_substantial_change_datetime"
         ] = most_recent_substantial_change_datetime.isoformat()
 
-    return ImportantChangeDatesResults(**change_date_results)
+        # Compute change duration in days
+        change_duration = (most_recent_change_datetime - initial_change_datetime).days
+        change_date_results[f"{file_subset}_change_duration_days"] = change_duration
+
+        # Compute duration to most recent substantial change
+        duration_to_most_recent_substantial = (
+            most_recent_substantial_change_datetime - initial_change_datetime
+        ).days
+        change_date_results[
+            f"{file_subset}_change_duration_to_most_recent_substantial_days"
+        ] = duration_to_most_recent_substantial
+
+        # Compute duration from substantial to most recent change
+        duration_from_substantial_to_most_recent = (
+            most_recent_change_datetime - most_recent_substantial_change_datetime
+        ).days
+        change_date_results[
+            f"{file_subset}_change_duration_from_substantial_to_most_recent_days"
+        ] = duration_from_substantial_to_most_recent
+
+    return ImportantChangeDatesResults(**change_date_results)  # type: ignore
 
 
 @dataclass

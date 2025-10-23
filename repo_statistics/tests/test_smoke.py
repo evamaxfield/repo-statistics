@@ -59,7 +59,7 @@ def test_bot_filters() -> None:
     analyze_repository(
         repo_path="https://github.com/bioio-devs/bioio",
         # Keep all bots by ignoring name checks
-        bot_names=None,
+        bot_name_indicators=None,
         # Keep all bots by ignoring email checks
         bot_email_indicators=None,
         compute_platform_metrics=False,

@@ -68,11 +68,12 @@ def _analyze_repository(  # noqa: C901
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
+    contributor_email_col: Literal["author_email", "committer_email"] = "author_email",
     datetime_col: Literal[
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
     period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
-    bot_names: tuple[str, ...] | None = ("dependabot", "github"),
+    bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
     bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
     substantial_change_threshold_quantile: float = 0.1,
     compute_timeseries_metrics: bool = True,
@@ -127,7 +128,9 @@ def _analyze_repository(  # noqa: C901
         "meta_contributor_name_column": contributor_name_col,
         "meta_datetime_column": datetime_col,
         "meta_processed_at": processed_at_dt.isoformat(),
-        "meta_bot_names": ("---".join(bot_names) if bot_names is not None else None),
+        "meta_bot_name_indicators": (
+            "---".join(bot_name_indicators) if bot_name_indicators is not None else None
+        ),
         "meta_bot_email_indicators": (
             "---".join(bot_email_indicators)
             if bot_email_indicators is not None
@@ -139,12 +142,16 @@ def _analyze_repository(  # noqa: C901
     log.debug("Removing bot changes")
     commits_df, bot_changes_count = commits.normalize_changes_df_and_remove_bot_changes(
         changes_df=commits_df,
-        bot_names=bot_names,
+        contributor_name_col=contributor_name_col,
+        contributor_email_col=contributor_email_col,
+        bot_name_indicators=bot_name_indicators,
         bot_email_indicators=bot_email_indicators,
     )
     per_file_commit_deltas_df, _ = commits.normalize_changes_df_and_remove_bot_changes(
         changes_df=per_file_commit_deltas_df,
-        bot_names=bot_names,
+        contributor_name_col=contributor_name_col,
+        contributor_email_col=contributor_email_col,
+        bot_name_indicators=bot_name_indicators,
         bot_email_indicators=bot_email_indicators,
     )
     all_metrics["bot_changes_count"] = bot_changes_count
@@ -315,7 +322,7 @@ def analyze_repository(
         "authored_datetime", "committed_datetime"
     ] = "authored_datetime",
     period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
-    bot_names: tuple[str, ...] | None = ("dependabot", "github"),
+    bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
     bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
     substantial_change_threshold_quantile: float = 0.1,
     compute_timeseries_metrics: bool = True,
@@ -383,7 +390,7 @@ def analyze_repository(
                     contributor_name_col=contributor_name_col,
                     datetime_col=datetime_col,
                     period_spans=period_spans,
-                    bot_names=bot_names,
+                    bot_name_indicators=bot_name_indicators,
                     bot_email_indicators=bot_email_indicators,
                     substantial_change_threshold_quantile=substantial_change_threshold_quantile,
                     compute_timeseries_metrics=compute_timeseries_metrics,
@@ -412,7 +419,7 @@ def analyze_repository(
                 contributor_name_col=contributor_name_col,
                 datetime_col=datetime_col,
                 period_spans=period_spans,
-                bot_names=bot_names,
+                bot_name_indicators=bot_name_indicators,
                 bot_email_indicators=bot_email_indicators,
                 substantial_change_threshold_quantile=substantial_change_threshold_quantile,
                 compute_timeseries_metrics=compute_timeseries_metrics,
