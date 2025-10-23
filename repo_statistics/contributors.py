@@ -11,7 +11,7 @@ from scipy.stats import entropy
 
 from . import constants
 from .gini import _compute_gini
-from .utils import filter_changes_to_dt_range, parse_timedelta
+from .utils import parse_timedelta
 
 ###############################################################################
 
@@ -36,21 +36,24 @@ def compute_contributor_counts(
     ] = "authored_datetime",
 ) -> ContributorCountMetrics:
     # Parse datetimes and filter commits to range
-    commits_df, _, _ = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, _, _ = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
 
     # Get unique contributors for each file type
     contributor_counts: dict[str, int] = {}
     for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
         subset_df = commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
-        unique_contributors = subset_df[contributor_name_col].unique()
-        contributor_counts[f"{file_subset}_contributor_count"] = len(
-            unique_contributors
+        n_unique_contributors = (
+            subset_df[contributor_name_col]
+            .str.to_lowercase()
+            .str.strip_chars()
+            .n_unique()
         )
+        contributor_counts[f"{file_subset}_contributor_count"] = n_unique_contributors
 
     return ContributorCountMetrics(**contributor_counts)
 
@@ -90,12 +93,15 @@ def compute_contributor_stability_metrics(
         )
 
     # Parse datetimes and filter commits to range
-    commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
+
+    start_datetime_dt = commits_df[datetime_col].min()
+    end_datetime_dt = commits_df[datetime_col].max()
 
     # Calculate project duration in days
     project_duration = (end_datetime_dt - start_datetime_dt).days
@@ -160,12 +166,12 @@ def compute_contributor_absence_factor(
     ] = "authored_datetime",
 ) -> ContributorAbsenceFactorMetrics:
     # Parse datetimes and filter commits to range
-    commits_df, _, _ = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, _, _ = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
 
     if len(commits_df) == 0:
         return ContributorAbsenceFactorMetrics(
@@ -397,12 +403,12 @@ def compute_contributor_distribution_metrics(
     ] = "authored_datetime",
 ) -> ContributorDistributionMetrics:
     # Parse datetimes and filter commits to range
-    per_file_commit_deltas_df, _, _ = filter_changes_to_dt_range(
-        changes_df=per_file_commit_deltas_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # per_file_commit_deltas_df, _, _ = filter_changes_to_dt_range(
+    #     changes_df=per_file_commit_deltas_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
 
     # Make each calculation for all file types
     file_subset_metrics: dict[str, SingleFileSubsetContributorDistributionMetrics] = {}
@@ -450,12 +456,12 @@ def compute_contributor_change_metrics(
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
 ) -> ContributorChangeMetrics:
     # Parse datetimes and filter commits to range
-    commits_df, _, _ = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, _, _ = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
 
     # Calculate commit count thresholds
     total_commits = len(commits_df)

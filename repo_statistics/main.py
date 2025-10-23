@@ -103,18 +103,21 @@ def _analyze_repository(  # noqa: C901
         )
 
     # Parse and filter changes to datetime range
-    commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
-    per_file_commit_deltas_df, _, _ = utils.filter_changes_to_dt_range(
-        changes_df=per_file_commit_deltas_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
+    # per_file_commit_deltas_df, _, _ = utils.filter_changes_to_dt_range(
+    #     changes_df=per_file_commit_deltas_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
+
+    start_datetime_dt = commits_df[datetime_col].min()
+    end_datetime_dt = commits_df[datetime_col].max()
 
     # Storage for all metrics
     all_metrics: dict[str, str | None | int | float | bool] = {

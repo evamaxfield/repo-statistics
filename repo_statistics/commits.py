@@ -11,7 +11,7 @@ from git import Repo
 from tqdm import tqdm
 
 from .constants import FileTypes
-from .utils import filter_changes_to_dt_range, get_linguist_file_type
+from .utils import get_linguist_file_type
 
 ###############################################################################
 
@@ -329,12 +329,12 @@ def compute_important_change_dates(
     substantial_change_threshold_quantile: float = 0.1,
 ) -> ImportantChangeDatesResults:
     # Parse datetimes and filter commits to range
-    commits_df, _, _ = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, _, _ = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
 
     change_date_results: dict[str, str | None] = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:
@@ -403,12 +403,12 @@ def compute_commit_counts(
     ] = "authored_datetime",
 ) -> CommitCountsResults:
     # Parse datetimes and filter commits to range
-    commits_df, _, _ = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, _, _ = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
 
     results = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:

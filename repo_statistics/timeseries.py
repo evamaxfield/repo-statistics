@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from . import constants
 from .gini import _compute_gini
-from .utils import filter_changes_to_dt_range, parse_timedelta
+from .utils import parse_timedelta
 
 ###############################################################################
 
@@ -65,12 +65,15 @@ def get_periods_changed(
         )
 
     # Parse datetimes and filter commits to range
-    commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
+
+    start_datetime_dt = commits_df[datetime_col].min()
+    end_datetime_dt = commits_df[datetime_col].max()
 
     # Calculate total periods
     change_duration = end_datetime_dt - start_datetime_dt
@@ -350,12 +353,15 @@ def compute_timeseries_metrics(
     td = parse_timedelta(period_span)
 
     # Parse datetimes and filter commits to range
-    commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
-        changes_df=commits_df,
-        start_datetime=start_datetime,
-        end_datetime=end_datetime,
-        datetime_col=datetime_col,
-    )
+    # commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
+    #     changes_df=commits_df,
+    #     start_datetime=start_datetime,
+    #     end_datetime=end_datetime,
+    #     datetime_col=datetime_col,
+    # )
+
+    start_datetime_dt = commits_df[datetime_col].min()
+    end_datetime_dt = commits_df[datetime_col].max()
 
     # Get periods changed
     periods_changed_results = get_periods_changed(
