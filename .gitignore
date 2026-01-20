@@ -127,6 +127,12 @@ index.md
 index_files/
 index.tex
 
+# Claude
+.claude/
+CLAUDE.md
+
 # Project specific
 .github-tokens.yml
 .github-tokens.yaml
+
+# Ignored data files

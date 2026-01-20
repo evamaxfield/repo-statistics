@@ -1,0 +1,8 @@
+default_context:
+    author_name: "Eva Maxfield Brown"
+    author_email: "evamaxfieldbrown@gmail.com"
+    hosting_github_username_or_org: "evamaxfield"
+    project_name: "repo-statistics"
+    project_slug: "repo-statistics"
+    python_slug: "repo_statistics"
+    project_short_description: "Calculate metrics and statistics for source-code repositories."

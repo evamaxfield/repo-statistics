@@ -16,19 +16,18 @@ clean:
 	find . -name '*~' -exec rm -f {} +
 	find . -name '__pycache__' -exec rm -fr {} +
 	rm -fr .mypy_cache
+	rm -fr .pytest_cache
+	rm -fr .ruff_cache
+	rm -fr build
 
 # install with all deps
 install:
 	pip install uv
-	uv pip install -e ".[dev,lint,coiled]"
+	uv pip install -e ".[lint,modeling]"
 
 # lint, format, and check all files
 lint:
-	pre-commit run --all-files
-
-# run pytest
-test:
-	pytest .
+	prek run --all-files
 
 ###############################################################################
 # Release and versioning
@@ -41,3 +40,12 @@ tag-for-release version:
 # release a new version
 release:
 	git push --follow-tags
+
+###############################################################################
+# Cookiecutter management
+
+# update this repo using latest cookiecutter
+update-from-cookiecutter:
+	pip install cookiecutter
+	cookiecutter gh:evamaxfield/pyproject-template --config-file .cookiecutter.yaml --no-input --overwrite-if-exists --output-dir ..
+
