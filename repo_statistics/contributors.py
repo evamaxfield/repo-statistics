@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import polars as pl
@@ -31,9 +31,7 @@ def compute_contributor_counts(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorCountMetrics:
     # Parse datetimes and filter commits to range
     # commits_df, _, _ = filter_changes_to_dt_range(
@@ -48,10 +46,7 @@ def compute_contributor_counts(
     for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
         subset_df = commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
         n_unique_contributors = (
-            subset_df[contributor_name_col]
-            .str.to_lowercase()
-            .str.strip_chars()
-            .n_unique()
+            subset_df[contributor_name_col].str.to_lowercase().str.strip_chars().n_unique()
         )
         contributor_counts[f"{file_subset}_contributor_count"] = n_unique_contributors
 
@@ -74,9 +69,7 @@ def compute_contributor_stability_metrics(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorStabilityMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
@@ -100,19 +93,19 @@ def compute_contributor_stability_metrics(
     #     datetime_col=datetime_col,
     # )
 
-    start_datetime_dt = commits_df[datetime_col].min()
-    end_datetime_dt = commits_df[datetime_col].max()
+    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
+    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
 
     # Calculate project duration in days
     project_duration = (end_datetime_dt - start_datetime_dt).days
 
     # Get contribution spans for each contributor
-    contributor_spans = []
-    contributor_stability = []
+    contributor_spans: list[int] = []
+    contributor_stability: list[str] = []
     for _, contributor_commits in commits_df.group_by(contributor_name_col):
         # Get first and last commit dates
-        first_commit = contributor_commits[datetime_col].min()
-        last_commit = contributor_commits[datetime_col].max()
+        first_commit = cast(datetime, contributor_commits[datetime_col].min())
+        last_commit = cast(datetime, contributor_commits[datetime_col].max())
 
         # Calculate contribution span in days
         span_days = (last_commit - first_commit).days
@@ -128,13 +121,13 @@ def compute_contributor_stability_metrics(
     stable_count = sum(1 for x in contributor_stability if x == "stable")
     transient_count = sum(1 for x in contributor_stability if x == "transient")
 
-    # Calculate span statistics
-    median_span = np.median(contributor_spans) if contributor_spans else 0
-    mean_span = np.mean(contributor_spans) if contributor_spans else 0
+    # Calculate span statistics (convert numpy types to Python floats)
+    median_span = float(np.median(contributor_spans)) if contributor_spans else 0.0
+    mean_span = float(np.mean(contributor_spans)) if contributor_spans else 0.0
 
     # Calculate normalized spans
-    normalized_median = median_span / project_duration if project_duration > 0 else 0
-    normalized_mean = mean_span / project_duration if project_duration > 0 else 0
+    normalized_median = median_span / project_duration if project_duration > 0 else 0.0
+    normalized_mean = mean_span / project_duration if project_duration > 0 else 0.0
 
     return ContributorStabilityMetrics(
         stable_contributors_count=stable_count,
@@ -161,9 +154,7 @@ def compute_contributor_absence_factor(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorAbsenceFactorMetrics:
     # Parse datetimes and filter commits to range
     # commits_df, _, _ = filter_changes_to_dt_range(
@@ -183,16 +174,18 @@ def compute_contributor_absence_factor(
             unknown_contributor_absence_factor=0,
         )
 
-    # Create list of lines changed by file type
-    all_file_subsets_lines_change_per_contrib: dict[str, list[int]] = {}
-    for _, contributor_group in commits_df.group_by(contributor_name_col):
-        for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
-            lines_changed_col = f"{file_subset}_lines_changed"
-            if file_subset not in all_file_subsets_lines_change_per_contrib:
-                all_file_subsets_lines_change_per_contrib[file_subset] = []
+    # Pre-initialize dict for lines changed by file type
+    file_subsets = ["total", *[ft.value for ft in constants.FileTypes]]
+    all_file_subsets_lines_change_per_contrib: dict[str, list[int]] = {
+        fs: [] for fs in file_subsets
+    }
 
+    # Collect lines changed per contributor for each file subset
+    for _, contributor_group in commits_df.group_by(contributor_name_col):
+        for file_subset in file_subsets:
+            lines_changed_col = f"{file_subset}_lines_changed"
             all_file_subsets_lines_change_per_contrib[file_subset].append(
-                contributor_group[lines_changed_col].sum()
+                int(contributor_group[lines_changed_col].sum())
             )
 
     # Sort all lists, sum, get half, then find min number of contributors to reach half
@@ -201,9 +194,7 @@ def compute_contributor_absence_factor(
         file_subset,
         lines_changed_per_contrib,
     ) in all_file_subsets_lines_change_per_contrib.items():
-        descending_lines_changed_per_contrib = sorted(
-            lines_changed_per_contrib, reverse=True
-        )
+        descending_lines_changed_per_contrib = sorted(lines_changed_per_contrib, reverse=True)
         lines_changed_sum = sum(descending_lines_changed_per_contrib)
         half_lines_changed_sum = lines_changed_sum / 2
         contributors_to_half = 0
@@ -214,9 +205,9 @@ def compute_contributor_absence_factor(
             if current_total >= half_lines_changed_sum:
                 break
 
-        contrib_absence_factor_per_file_subset[
-            f"{file_subset}_contributor_absence_factor"
-        ] = contributors_to_half
+        contrib_absence_factor_per_file_subset[f"{file_subset}_contributor_absence_factor"] = (
+            contributors_to_half
+        )
 
     return ContributorAbsenceFactorMetrics(**contrib_absence_factor_per_file_subset)
 
@@ -320,24 +311,20 @@ def _compute_single_file_subset_contributor_distribution(
         files_per_contributor_entropy = np.nan
     else:
         # Convert to probabilities
-        files_per_contributor_vector_as_prob = np.array(
+        files_per_contributor_vector_as_prob = np.array(files_per_contributor_vector) / sum(
             files_per_contributor_vector
-        ) / sum(files_per_contributor_vector)
-        files_per_contributor_entropy = entropy(
-            files_per_contributor_vector_as_prob, base=2
         )
+        files_per_contributor_entropy = entropy(files_per_contributor_vector_as_prob, base=2)
 
     # Handle single file case
     if len(contributors_per_file_vector) == 1:
         contributors_per_file_entropy = np.nan
     else:
         # Convert to probabilities
-        contributors_per_file_vector_as_prob = np.array(
+        contributors_per_file_vector_as_prob = np.array(contributors_per_file_vector) / sum(
             contributors_per_file_vector
-        ) / sum(contributors_per_file_vector)
-        contributors_per_file_entropy = entropy(
-            contributors_per_file_vector_as_prob, base=2
         )
+        contributors_per_file_entropy = entropy(contributors_per_file_vector_as_prob, base=2)
 
     # Compute Gini coefficients
     contributors_per_file_gini = _compute_gini(contributors_per_file_vector)
@@ -398,9 +385,7 @@ def compute_contributor_distribution_metrics(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorDistributionMetrics:
     # Parse datetimes and filter commits to range
     # per_file_commit_deltas_df, _, _ = filter_changes_to_dt_range(
@@ -423,21 +408,42 @@ def compute_contributor_distribution_metrics(
             filetype_filtered_df = per_file_commit_deltas_df
 
         # Store to dict
-        file_subset_metrics[file_subset] = (
-            _compute_single_file_subset_contributor_distribution(
-                filetype_filtered_df=filetype_filtered_df,
-                contributor_name_col=contributor_name_col,
-            )
+        file_subset_metrics[file_subset] = _compute_single_file_subset_contributor_distribution(
+            filetype_filtered_df=filetype_filtered_df,
+            contributor_name_col=contributor_name_col,
         )
 
     # Compile all file subset metrics into one dataclass
-    return ContributorDistributionMetrics(
-        **{
-            f"{file_subset}_{metric_name}": metric_value
-            for file_subset, file_subset_metrics in file_subset_metrics.items()
-            for metric_name, metric_value in file_subset_metrics.to_dict().items()
-        },
-    )
+    # Use Any for value type since fields have mixed int/float types
+    kwargs: dict[str, Any] = {}
+    for file_subset, metrics in file_subset_metrics.items():
+        kwargs[f"{file_subset}_contributors_per_file_entropy"] = (
+            metrics.contributors_per_file_entropy
+        )
+        kwargs[f"{file_subset}_contributors_per_file_gini"] = metrics.contributors_per_file_gini
+        kwargs[f"{file_subset}_files_per_contributor_entropy"] = (
+            metrics.files_per_contributor_entropy
+        )
+        kwargs[f"{file_subset}_files_per_contributor_gini"] = metrics.files_per_contributor_gini
+        kwargs[f"{file_subset}_simple_threshold_generalist_count"] = (
+            metrics.simple_threshold_generalist_count
+        )
+        kwargs[f"{file_subset}_simple_threshold_specialist_count"] = (
+            metrics.simple_threshold_specialist_count
+        )
+        kwargs[f"{file_subset}_median_threshold_generalist_count"] = (
+            metrics.median_threshold_generalist_count
+        )
+        kwargs[f"{file_subset}_median_threshold_specialist_count"] = (
+            metrics.median_threshold_specialist_count
+        )
+        kwargs[f"{file_subset}_twenty_fifth_percentile_threshold_generalist_count"] = (
+            metrics.twenty_fifth_percentile_threshold_generalist_count
+        )
+        kwargs[f"{file_subset}_twenty_fifth_percentile_threshold_specialist_count"] = (
+            metrics.twenty_fifth_percentile_threshold_specialist_count
+        )
+    return ContributorDistributionMetrics(**kwargs)
 
 
 @dataclass
@@ -450,9 +456,7 @@ def compute_contributor_change_metrics(
     commits_df: pl.DataFrame,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
 ) -> ContributorChangeMetrics:
     # Parse datetimes and filter commits to range
@@ -489,6 +493,6 @@ def compute_contributor_change_metrics(
 
     # Get the difference
     return ContributorChangeMetrics(
-        diff=len(initial_contributors.difference(most_recent_contributors)),
-        same=len(initial_contributors.intersection(most_recent_contributors)),
+        diff_contributor_count=len(initial_contributors.difference(most_recent_contributors)),
+        same_contributor_count=len(initial_contributors.intersection(most_recent_contributors)),
     )

@@ -38,9 +38,7 @@ def compute_sloc_metrics(
     repo_path: str | Path | Repo,
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> SLOCResults:
     # Get Repo object from path if necessary
     if isinstance(repo_path, Repo):
@@ -54,6 +52,13 @@ def compute_sloc_metrics(
         target_datetime=target_datetime,
         datetime_col=datetime_col,
     )
+
+    # Save the original HEAD ref to restore later
+    try:
+        original_ref = repo.active_branch.name
+    except TypeError:
+        # Detached HEAD state - save the commit hash
+        original_ref = repo.head.commit.hexsha
 
     # Try to checkout the repo to that commit
     try:
@@ -130,8 +135,8 @@ def compute_sloc_metrics(
         )
 
     finally:
-        # Checkout back to HEAD
-        repo.git.checkout("HEAD")
+        # Checkout back to original ref
+        repo.git.checkout(original_ref)
 
 
 @dataclass
@@ -145,9 +150,7 @@ def compute_tag_metrics(
     repo_path: str | Path | Repo,
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> RepoTagMetrics:
     # Get Repo object from path if necessary
     if isinstance(repo_path, Repo):
@@ -161,6 +164,13 @@ def compute_tag_metrics(
         target_datetime=target_datetime,
         datetime_col=datetime_col,
     )
+
+    # Save the original HEAD ref to restore later
+    try:
+        original_ref = repo.active_branch.name
+    except TypeError:
+        # Detached HEAD state - save the commit hash
+        original_ref = repo.head.commit.hexsha
 
     # Try to checkout the repo to that commit
     try:
@@ -193,5 +203,5 @@ def compute_tag_metrics(
         )
 
     finally:
-        # Checkout back to HEAD
-        repo.git.checkout("HEAD")
+        # Checkout back to original ref
+        repo.git.checkout(original_ref)

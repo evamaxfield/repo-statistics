@@ -87,20 +87,24 @@ def _process_repo_linter_file_contents_rule(
 
         # Check if there are any files present
         for fp in glob_result:
-            with open(fp) as open_f:
-                file_contents = open_f.read()
+            try:
+                with open(fp, encoding="utf-8", errors="ignore") as open_f:
+                    file_contents = open_f.read()
 
-                # Check if we should ignore case
-                if ignore_case:
-                    if re.search(regex_content, file_contents, flags=re.IGNORECASE):
-                        glob_results.append(True)
+                    # Check if we should ignore case
+                    if ignore_case:
+                        if re.search(regex_content, file_contents, flags=re.IGNORECASE):
+                            glob_results.append(True)
+                        else:
+                            glob_results.append(False)
                     else:
-                        glob_results.append(False)
-                else:
-                    if re.search(regex_content, file_contents):
-                        glob_results.append(True)
-                    else:
-                        glob_results.append(False)
+                        if re.search(regex_content, file_contents):
+                            glob_results.append(True)
+                        else:
+                            glob_results.append(False)
+            except (OSError, UnicodeDecodeError):
+                # Skip files that can't be read (binary, permission issues, etc.)
+                glob_results.append(False)
 
     # Check if all of the glob results are True
     return len(glob_results) >= 1 and all(glob_results)
@@ -183,9 +187,7 @@ def process_with_repo_linter(
     repo_path: str | Path | Repo,
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> RepoLinterResults:
     # Get Repo object from path if necessary
     if isinstance(repo_path, Repo):
@@ -199,6 +201,13 @@ def process_with_repo_linter(
         target_datetime=target_datetime,
         datetime_col=datetime_col,
     )
+
+    # Save the original HEAD ref to restore later
+    try:
+        original_ref = repo.active_branch.name
+    except TypeError:
+        # Detached HEAD state - save the commit hash
+        original_ref = repo.head.commit.hexsha
 
     # Try to checkout the repo to that commit
     try:
@@ -240,5 +249,5 @@ def process_with_repo_linter(
         )
 
     finally:
-        # Checkout back to HEAD
-        repo.git.checkout("HEAD")
+        # Checkout back to original ref
+        repo.git.checkout(original_ref)

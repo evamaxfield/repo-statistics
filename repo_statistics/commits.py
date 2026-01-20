@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
@@ -339,96 +339,166 @@ class ImportantChangeDatesResults(DataClassJsonMixin):
     unknown_change_duration_from_substantial_to_most_recent_days: int | None
 
 
+@dataclass
+class _FileSubsetChangeDates:
+    """Intermediate storage for file subset change date metrics."""
+
+    initial_change_datetime: str | None
+    most_recent_change_datetime: str | None
+    most_recent_substantial_change_datetime: str | None
+    change_duration_days: int | None
+    change_duration_to_most_recent_substantial_days: int | None
+    change_duration_from_substantial_to_most_recent_days: int | None
+
+
+def _compute_file_subset_change_dates(
+    subset_df: pl.DataFrame,
+    datetime_col: str,
+    lines_changed_col: str,
+    substantial_change_threshold_quantile: float,
+) -> _FileSubsetChangeDates:
+    """Compute change date metrics for a single file subset."""
+    if len(subset_df) == 0:
+        return _FileSubsetChangeDates(
+            initial_change_datetime=None,
+            most_recent_change_datetime=None,
+            most_recent_substantial_change_datetime=None,
+            change_duration_days=None,
+            change_duration_to_most_recent_substantial_days=None,
+            change_duration_from_substantial_to_most_recent_days=None,
+        )
+
+    # Find initial and most recent change datetimes
+    # Polars min/max on datetime columns returns datetime
+    initial_change_dt = cast(datetime, subset_df[datetime_col].min())
+    most_recent_change_dt = cast(datetime, subset_df[datetime_col].max())
+
+    # Find threshold of lines changed
+    lines_change_target = subset_df[lines_changed_col].quantile(
+        substantial_change_threshold_quantile,
+        interpolation="nearest",
+    )
+
+    # Filter subset to changes with at least that many lines changed
+    substantial_changes_df = subset_df.filter(pl.col(lines_changed_col) >= lines_change_target)
+    # Sort substantial changes by datetime descending and get most recent
+    most_recent_substantial_dt = cast(
+        datetime,
+        substantial_changes_df.sort(by=datetime_col, descending=True)[datetime_col][0],
+    )
+
+    return _FileSubsetChangeDates(
+        initial_change_datetime=initial_change_dt.isoformat(),
+        most_recent_change_datetime=most_recent_change_dt.isoformat(),
+        most_recent_substantial_change_datetime=most_recent_substantial_dt.isoformat(),
+        change_duration_days=(most_recent_change_dt - initial_change_dt).days,
+        change_duration_to_most_recent_substantial_days=(
+            most_recent_substantial_dt - initial_change_dt
+        ).days,
+        change_duration_from_substantial_to_most_recent_days=(
+            most_recent_change_dt - most_recent_substantial_dt
+        ).days,
+    )
+
+
 def compute_important_change_dates(
     commits_df: pl.DataFrame,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     substantial_change_threshold_quantile: float = 0.1,
 ) -> ImportantChangeDatesResults:
-    # Parse datetimes and filter commits to range
-    # commits_df, _, _ = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
+    """Compute important change date metrics for each file type subset."""
+    results: dict[str, _FileSubsetChangeDates] = {}
 
-    change_date_results: dict[str, str | int | None] = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:
         # Get subset of changes that are relevant to this file type
-        subset_df = commits_df.filter(pl.col(f"{file_subset}_lines_changed") > 0)
-        if len(subset_df) == 0:
-            change_date_results[f"{file_subset}_initial_change_datetime"] = None
-            change_date_results[f"{file_subset}_most_recent_change_datetime"] = None
-            change_date_results[
-                f"{file_subset}_most_recent_substantial_change_datetime"
-            ] = None
-            change_date_results[f"{file_subset}_change_duration_days"] = None
-            change_date_results[
-                f"{file_subset}_change_duration_to_most_recent_substantial_days"
-            ] = None
-            change_date_results[
-                f"{file_subset}_change_duration_from_substantial_to_most_recent_days"
-            ] = None
-            continue
+        lines_changed_col = f"{file_subset}_lines_changed"
+        subset_df = commits_df.filter(pl.col(lines_changed_col) > 0)
 
-        # Find initial change datetime
-        initial_change_datetime = subset_df[datetime_col].min()
-
-        # Find most recent commit datetime
-        most_recent_change_datetime = subset_df[datetime_col].max()
-
-        # Find threshold of lines changed
-        lines_change_target = subset_df[f"{file_subset}_lines_changed"].quantile(
-            substantial_change_threshold_quantile,
-            interpolation="nearest",
+        results[file_subset] = _compute_file_subset_change_dates(
+            subset_df=subset_df,
+            datetime_col=datetime_col,
+            lines_changed_col=lines_changed_col,
+            substantial_change_threshold_quantile=substantial_change_threshold_quantile,
         )
 
-        # Filter subset to changes with at least that many lines changed
-        substantial_changes_df = subset_df.filter(
-            pl.col(f"{file_subset}_lines_changed") >= lines_change_target
-        )
-        # Sort substantial changes by datetime descending and get most recent
-        most_recent_substantial_change_datetime: datetime = substantial_changes_df.sort(
-            by=datetime_col,
-            descending=True,
-        )[datetime_col][0]
-
-        # Store results
-        change_date_results[f"{file_subset}_initial_change_datetime"] = (
-            initial_change_datetime.isoformat()
-        )
-        change_date_results[f"{file_subset}_most_recent_change_datetime"] = (
-            most_recent_change_datetime.isoformat()
-        )
-        change_date_results[
-            f"{file_subset}_most_recent_substantial_change_datetime"
-        ] = most_recent_substantial_change_datetime.isoformat()
-
-        # Compute change duration in days
-        change_duration = (most_recent_change_datetime - initial_change_datetime).days
-        change_date_results[f"{file_subset}_change_duration_days"] = change_duration
-
-        # Compute duration to most recent substantial change
-        duration_to_most_recent_substantial = (
-            most_recent_substantial_change_datetime - initial_change_datetime
-        ).days
-        change_date_results[
-            f"{file_subset}_change_duration_to_most_recent_substantial_days"
-        ] = duration_to_most_recent_substantial
-
-        # Compute duration from substantial to most recent change
-        duration_from_substantial_to_most_recent = (
-            most_recent_change_datetime - most_recent_substantial_change_datetime
-        ).days
-        change_date_results[
-            f"{file_subset}_change_duration_from_substantial_to_most_recent_days"
-        ] = duration_from_substantial_to_most_recent
-
-    return ImportantChangeDatesResults(**change_date_results)  # type: ignore
+    return ImportantChangeDatesResults(
+        total_initial_change_datetime=results["total"].initial_change_datetime,
+        total_most_recent_change_datetime=results["total"].most_recent_change_datetime,
+        total_most_recent_substantial_change_datetime=results[
+            "total"
+        ].most_recent_substantial_change_datetime,
+        total_change_duration_days=results["total"].change_duration_days,
+        total_change_duration_to_most_recent_substantial_days=results[
+            "total"
+        ].change_duration_to_most_recent_substantial_days,
+        total_change_duration_from_substantial_to_most_recent_days=results[
+            "total"
+        ].change_duration_from_substantial_to_most_recent_days,
+        programming_initial_change_datetime=results["programming"].initial_change_datetime,
+        programming_most_recent_change_datetime=results[
+            "programming"
+        ].most_recent_change_datetime,
+        programming_most_recent_substantial_change_datetime=results[
+            "programming"
+        ].most_recent_substantial_change_datetime,
+        programming_change_duration_days=results["programming"].change_duration_days,
+        programming_change_duration_to_most_recent_substantial_days=results[
+            "programming"
+        ].change_duration_to_most_recent_substantial_days,
+        programming_change_duration_from_substantial_to_most_recent_days=results[
+            "programming"
+        ].change_duration_from_substantial_to_most_recent_days,
+        markup_initial_change_datetime=results["markup"].initial_change_datetime,
+        markup_most_recent_change_datetime=results["markup"].most_recent_change_datetime,
+        markup_most_recent_substantial_change_datetime=results[
+            "markup"
+        ].most_recent_substantial_change_datetime,
+        markup_change_duration_days=results["markup"].change_duration_days,
+        markup_change_duration_to_most_recent_substantial_days=results[
+            "markup"
+        ].change_duration_to_most_recent_substantial_days,
+        markup_change_duration_from_substantial_to_most_recent_days=results[
+            "markup"
+        ].change_duration_from_substantial_to_most_recent_days,
+        prose_initial_change_datetime=results["prose"].initial_change_datetime,
+        prose_most_recent_change_datetime=results["prose"].most_recent_change_datetime,
+        prose_most_recent_substantial_change_datetime=results[
+            "prose"
+        ].most_recent_substantial_change_datetime,
+        prose_change_duration_days=results["prose"].change_duration_days,
+        prose_change_duration_to_most_recent_substantial_days=results[
+            "prose"
+        ].change_duration_to_most_recent_substantial_days,
+        prose_change_duration_from_substantial_to_most_recent_days=results[
+            "prose"
+        ].change_duration_from_substantial_to_most_recent_days,
+        data_initial_change_datetime=results["data"].initial_change_datetime,
+        data_most_recent_change_datetime=results["data"].most_recent_change_datetime,
+        data_most_recent_substantial_change_datetime=results[
+            "data"
+        ].most_recent_substantial_change_datetime,
+        data_change_duration_days=results["data"].change_duration_days,
+        data_change_duration_to_most_recent_substantial_days=results[
+            "data"
+        ].change_duration_to_most_recent_substantial_days,
+        data_change_duration_from_substantial_to_most_recent_days=results[
+            "data"
+        ].change_duration_from_substantial_to_most_recent_days,
+        unknown_initial_change_datetime=results["unknown"].initial_change_datetime,
+        unknown_most_recent_change_datetime=results["unknown"].most_recent_change_datetime,
+        unknown_most_recent_substantial_change_datetime=results[
+            "unknown"
+        ].most_recent_substantial_change_datetime,
+        unknown_change_duration_days=results["unknown"].change_duration_days,
+        unknown_change_duration_to_most_recent_substantial_days=results[
+            "unknown"
+        ].change_duration_to_most_recent_substantial_days,
+        unknown_change_duration_from_substantial_to_most_recent_days=results[
+            "unknown"
+        ].change_duration_from_substantial_to_most_recent_days,
+    )
 
 
 @dataclass
@@ -445,9 +515,7 @@ def compute_commit_counts(
     commits_df: pl.DataFrame,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> CommitCountsResults:
     # Parse datetimes and filter commits to range
     # commits_df, _, _ = filter_changes_to_dt_range(

@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from functools import lru_cache
 from numbers import Number
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import polars as pl
 from git import Repo
@@ -77,13 +77,9 @@ TIMEDELTA_SIZES_SECONDS_2 = {
     "week": 7 * 60 * 60 * 24,
     "year": 365 * 60 * 60 * 24,
 }
-TIMEDELTA_SIZES_SECONDS_2.update(
-    {k + "s": v for k, v in TIMEDELTA_SIZES_SECONDS_2.items()}
-)
+TIMEDELTA_SIZES_SECONDS_2.update({k + "s": v for k, v in TIMEDELTA_SIZES_SECONDS_2.items()})
 TIMEDELTA_SIZES_SECONDS.update(TIMEDELTA_SIZES_SECONDS_2)
-TIMEDELTA_SIZES_SECONDS.update(
-    {k.upper(): v for k, v in TIMEDELTA_SIZES_SECONDS.items()}
-)
+TIMEDELTA_SIZES_SECONDS.update({k.upper(): v for k, v in TIMEDELTA_SIZES_SECONDS.items()})
 
 # Create the inversions of these as well
 TIMEDELTA_SIZES_SECONDS_INV = {v: k for k, v in TIMEDELTA_SIZES_SECONDS_2.items()}
@@ -153,9 +149,7 @@ def parse_timedelta(  # noqa: C901
         multiplier = TIMEDELTA_SIZES_SECONDS[suffix.lower()]
     except KeyError:
         valid_units = ", ".join(TIMEDELTA_SIZES_SECONDS.keys())
-        raise KeyError(
-            f"Invalid time unit: {suffix}. Valid units are: {valid_units}"
-        ) from None
+        raise KeyError(f"Invalid time unit: {suffix}. Valid units are: {valid_units}") from None
 
     result = n * multiplier
     if int(result) == result:
@@ -299,9 +293,7 @@ def filter_changes_to_dt_range(
     changes_df: pl.DataFrame,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> tuple[pl.DataFrame, datetime, datetime]:
     """Filter changes DataFrame to a specified datetime range.
 
@@ -328,11 +320,11 @@ def filter_changes_to_dt_range(
         The end datetime used for filtering.
     """
     if start_datetime is None:
-        start_datetime_dt = changes_df[datetime_col].min()
+        start_datetime_dt = cast(datetime, changes_df[datetime_col].min())
     else:
         start_datetime_dt = parse_datetime(start_datetime)
     if end_datetime is None:
-        end_datetime_dt = changes_df[datetime_col].max()
+        end_datetime_dt = cast(datetime, changes_df[datetime_col].max())
     else:
         end_datetime_dt = parse_datetime(end_datetime)
 
@@ -353,15 +345,11 @@ def filter_changes_to_dt_range(
 def get_commit_hash_for_target_datetime(
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> str:
     # If no target datetime is provided, return the latest commit hash
     if target_datetime is None:
-        latest_commit_hexsha = commits_df.sort(datetime_col, descending=True)[
-            "commit_hash"
-        ][0]
+        latest_commit_hexsha = commits_df.sort(datetime_col, descending=True)["commit_hash"][0]
         return latest_commit_hexsha
 
     # Find the latest commit hash up to the target datetime

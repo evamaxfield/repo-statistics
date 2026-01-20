@@ -3,7 +3,7 @@
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 import polars as pl
@@ -72,8 +72,8 @@ def get_periods_changed(
     #     datetime_col=datetime_col,
     # )
 
-    start_datetime_dt = commits_df[datetime_col].min()
-    end_datetime_dt = commits_df[datetime_col].max()
+    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
+    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
 
     # Calculate total periods
     change_duration = end_datetime_dt - start_datetime_dt
@@ -81,9 +81,24 @@ def get_periods_changed(
     # Always have at least one period
     n_tds = max(math.ceil(change_duration / td), 1)
 
-    # Iterate over periods and record binary or lines changed count
-    current_start_dt = start_datetime_dt
+    # Pre-compute file subsets and initialize results dict
+    file_subsets = ["total", *[ft.value for ft in constants.FileTypes]]
     results: dict[str, list[int]] = {}
+    for file_subset in file_subsets:
+        results[f"{file_subset}_changed_binary"] = []
+        results[f"{file_subset}_lines_changed_count"] = []
+
+    # Helper function defined once outside the loop
+    def _get_binary_and_count(commit_subset: pl.DataFrame, lines_col: str) -> tuple[int, int]:
+        if len(commit_subset) == 0:
+            return (0, 0)
+        return (
+            int(len(commit_subset.filter(pl.col(lines_col) > 0)) > 0),
+            int(commit_subset[lines_col].sum()),
+        )
+
+    # Iterate over periods and record binary or lines changed count
+    current_start_dt: datetime = start_datetime_dt
     for _ in tqdm(range(n_tds), desc="Processing change periods", leave=False):
         # Get the subset of commits in this period
         commit_subset = commits_df.filter(
@@ -94,35 +109,12 @@ def get_periods_changed(
             )
         )
 
-        # Update changes (binary and lines) for this period
-        def _get_binary_and_count_from_file_subset(
-            commit_subset: pl.DataFrame, file_subset: str
-        ) -> tuple[int, int]:
+        # Process each file subset
+        for file_subset in file_subsets:
             lines_changed_col = f"{file_subset}_lines_changed"
-            return (
-                int(len(commit_subset.filter(pl.col(lines_changed_col) > 0)) > 0),
-                commit_subset[lines_changed_col].sum() if len(commit_subset) > 0 else 0,
-            )
-
-        # Iter over each file subset
-        for file_subset in ["total", *[ft.value for ft in constants.FileTypes]]:
-            # Process period
-            binary, count = _get_binary_and_count_from_file_subset(
-                commit_subset,
-                file_subset,
-            )
-
-            # Check if list already exists at key
-            changed_binary_key = f"{file_subset}_changed_binary"
-            lines_changed_count_key = f"{file_subset}_lines_changed_count"
-            if changed_binary_key not in results:
-                results[changed_binary_key] = []
-            if lines_changed_count_key not in results:
-                results[lines_changed_count_key] = []
-
-            # Append to the lists
-            results[changed_binary_key].append(binary)
-            results[lines_changed_count_key].append(count)
+            binary, count = _get_binary_and_count(commit_subset, lines_changed_col)
+            results[f"{file_subset}_changed_binary"].append(binary)
+            results[f"{file_subset}_lines_changed_count"].append(count)
 
         # Increment
         current_start_dt += td
@@ -217,41 +209,41 @@ class TimeseriesMetrics(DataClassJsonMixin):
     unknown_lines_changed_count_entropy: float
     unknown_lines_changed_count_gini: float
     unknown_lines_changed_count_variation: float
-    # Change span metrics
-    total_did_change_median_span: int
+    # Change span metrics (all floats since median can be float and NaN is float)
+    total_did_change_median_span: float
     total_did_change_mean_span: float
     total_did_change_std_span: float
-    total_did_not_change_median_span: int
+    total_did_not_change_median_span: float
     total_did_not_change_mean_span: float
     total_did_not_change_std_span: float
-    programming_did_change_median_span: int
+    programming_did_change_median_span: float
     programming_did_change_mean_span: float
     programming_did_change_std_span: float
-    programming_did_not_change_median_span: int
+    programming_did_not_change_median_span: float
     programming_did_not_change_mean_span: float
     programming_did_not_change_std_span: float
-    markup_did_change_median_span: int
+    markup_did_change_median_span: float
     markup_did_change_mean_span: float
     markup_did_change_std_span: float
-    markup_did_not_change_median_span: int
+    markup_did_not_change_median_span: float
     markup_did_not_change_mean_span: float
     markup_did_not_change_std_span: float
-    prose_did_change_median_span: int
+    prose_did_change_median_span: float
     prose_did_change_mean_span: float
     prose_did_change_std_span: float
-    prose_did_not_change_median_span: int
+    prose_did_not_change_median_span: float
     prose_did_not_change_mean_span: float
     prose_did_not_change_std_span: float
-    data_did_change_median_span: int
+    data_did_change_median_span: float
     data_did_change_mean_span: float
     data_did_change_std_span: float
-    data_did_not_change_median_span: int
+    data_did_not_change_median_span: float
     data_did_not_change_mean_span: float
     data_did_not_change_std_span: float
-    unknown_did_change_median_span: int
+    unknown_did_change_median_span: float
     unknown_did_change_mean_span: float
     unknown_did_change_std_span: float
-    unknown_did_not_change_median_span: int
+    unknown_did_not_change_median_span: float
     unknown_did_not_change_mean_span: float
     unknown_did_not_change_std_span: float
 
@@ -316,22 +308,21 @@ def _compute_metrics_from_periods_change_results(
             ]:
                 # Did change spans
                 did_change_span_key = (
-                    f"{file_subset}_did_change_" f"{span_reduction_func.__name__}_span"
+                    f"{file_subset}_did_change_{span_reduction_func.__name__}_span"
                 )
                 if len(span_results.did_change_spans) > 0:
-                    period_and_span_metrics[did_change_span_key] = span_reduction_func(
-                        span_results.did_change_spans
+                    period_and_span_metrics[did_change_span_key] = float(
+                        span_reduction_func(span_results.did_change_spans)
                     )
                 else:
                     period_and_span_metrics[did_change_span_key] = float("nan")
 
                 # Did not change spans
                 did_not_change_span_key = (
-                    f"{file_subset}_did_not_change_"
-                    f"{span_reduction_func.__name__}_span"
+                    f"{file_subset}_did_not_change_{span_reduction_func.__name__}_span"
                 )
                 if len(span_results.did_not_change_spans) > 0:
-                    period_and_span_metrics[did_not_change_span_key] = (
+                    period_and_span_metrics[did_not_change_span_key] = float(
                         span_reduction_func(span_results.did_not_change_spans)
                     )
                 else:
@@ -345,9 +336,7 @@ def compute_timeseries_metrics(
     period_span: str | float | timedelta,
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> TimeseriesMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
@@ -360,8 +349,8 @@ def compute_timeseries_metrics(
     #     datetime_col=datetime_col,
     # )
 
-    start_datetime_dt = commits_df[datetime_col].min()
-    end_datetime_dt = commits_df[datetime_col].max()
+    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
+    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
 
     # Get periods changed
     periods_changed_results = get_periods_changed(
@@ -382,6 +371,4 @@ def compute_timeseries_metrics(
         periods_changed_results,
     )
 
-    return TimeseriesMetrics(
-        **period_and_span_metrics,  # type: ignore
-    )
+    return TimeseriesMetrics(**period_and_span_metrics)

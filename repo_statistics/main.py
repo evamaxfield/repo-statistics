@@ -9,7 +9,7 @@ from datetime import date, datetime
 from itertools import cycle
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
@@ -69,9 +69,7 @@ def _analyze_repository(  # noqa: C901
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     contributor_email_col: Literal["author_email", "committer_email"] = "author_email",
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
     bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
     bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
@@ -99,8 +97,7 @@ def _analyze_repository(  # noqa: C901
     # If less than 5 commits, return None
     if len(commits_df) < 5:
         raise ValueError(
-            f"Repository {parsed_repo.owner}/{parsed_repo.name} "
-            f"has less than 5 commits."
+            f"Repository {parsed_repo.owner}/{parsed_repo.name} has less than 5 commits."
         )
 
     # Parse and filter changes to datetime range
@@ -117,11 +114,11 @@ def _analyze_repository(  # noqa: C901
     #     datetime_col=datetime_col,
     # )
 
-    start_datetime_dt = commits_df[datetime_col].min()
-    end_datetime_dt = commits_df[datetime_col].max()
+    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
+    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
 
-    # Storage for all metrics
-    all_metrics: dict[str, str | None | int | float | bool] = {
+    # Storage for all metrics (use Any for values since to_dict() returns mixed types)
+    all_metrics: dict[str, Any] = {
         "meta_repo_owner_and_name": f"{parsed_repo.owner}/{parsed_repo.name}".lower(),
         "meta_start_datetime": start_datetime_dt.isoformat(),
         "meta_end_datetime": end_datetime_dt.isoformat(),
@@ -132,9 +129,7 @@ def _analyze_repository(  # noqa: C901
             "---".join(bot_name_indicators) if bot_name_indicators is not None else None
         ),
         "meta_bot_email_indicators": (
-            "---".join(bot_email_indicators)
-            if bot_email_indicators is not None
-            else None
+            "---".join(bot_email_indicators) if bot_email_indicators is not None else None
         ),
     }
 
@@ -206,19 +201,14 @@ def _analyze_repository(  # noqa: C901
                 all_metrics[f"{period_span_key}_{key}"] = value
 
         if compute_contributor_stability_metrics:
-            log.debug(
-                f"Computing contributor stability metrics "
-                f"for period span: {period_span}"
-            )
-            contributor_stability_metrics = (
-                contributors.compute_contributor_stability_metrics(
-                    commits_df=commits_df,
-                    period_span=period_span,
-                    start_datetime=start_datetime,
-                    end_datetime=end_datetime,
-                    contributor_name_col=contributor_name_col,
-                    datetime_col=datetime_col,
-                )
+            log.debug(f"Computing contributor stability metrics for period span: {period_span}")
+            contributor_stability_metrics = contributors.compute_contributor_stability_metrics(
+                commits_df=commits_df,
+                period_span=period_span,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                contributor_name_col=contributor_name_col,
+                datetime_col=datetime_col,
             )
 
             for key, value in contributor_stability_metrics.to_dict().items():
@@ -227,14 +217,12 @@ def _analyze_repository(  # noqa: C901
     # Compute other contributor metrics
     if compute_contributor_absence_factor:
         log.debug("Computing contributor absence factor metrics")
-        contributor_absence_factor_metrics = (
-            contributors.compute_contributor_absence_factor(
-                commits_df=commits_df,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
-                contributor_name_col=contributor_name_col,
-                datetime_col=datetime_col,
-            )
+        contributor_absence_factor_metrics = contributors.compute_contributor_absence_factor(
+            commits_df=commits_df,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            contributor_name_col=contributor_name_col,
+            datetime_col=datetime_col,
         )
 
         all_metrics.update(contributor_absence_factor_metrics.to_dict())
@@ -305,9 +293,7 @@ def _analyze_repository(  # noqa: C901
             starsgazers_count=platform_metrics.stargazers_count,
             total_contibutors_count=contributor_count_results.total_contributor_count,
         )
-        all_metrics["project_type_heuristic_classification"] = (
-            project_type_classification
-        )
+        all_metrics["project_type_heuristic_classification"] = project_type_classification
 
     return all_metrics
 
@@ -318,9 +304,7 @@ def analyze_repository(
     start_datetime: str | date | datetime | None = None,
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-    datetime_col: Literal[
-        "authored_datetime", "committed_datetime"
-    ] = "authored_datetime",
+    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
     bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
     bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
@@ -546,6 +530,7 @@ def _coiled_processing(
     batch_errors = []
 
     # Always add git to coiled kwargs
+    prepped_coiled_kwargs: dict[str, Any]
     if coiled_kwargs is None:
         prepped_coiled_kwargs = {
             "extra_kwargs": {"package_sync_conda_extras": ["git"]},
@@ -556,21 +541,15 @@ def _coiled_processing(
             if "package_sync_conda_extras" in prepped_coiled_kwargs["extra_kwargs"]:
                 if (
                     "git"
-                    not in prepped_coiled_kwargs["extra_kwargs"][
-                        "package_sync_conda_extras"
-                    ]
+                    not in prepped_coiled_kwargs["extra_kwargs"]["package_sync_conda_extras"]
                 ):
-                    prepped_coiled_kwargs["extra_kwargs"][
-                        "package_sync_conda_extras"
-                    ].append("git")
+                    prepped_coiled_kwargs["extra_kwargs"]["package_sync_conda_extras"].append(
+                        "git"
+                    )
             else:
-                prepped_coiled_kwargs["extra_kwargs"]["package_sync_conda_extras"] = [
-                    "git"
-                ]
+                prepped_coiled_kwargs["extra_kwargs"]["package_sync_conda_extras"] = ["git"]
         else:
-            prepped_coiled_kwargs["extra_kwargs"] = {
-                "package_sync_conda_extras": ["git"]
-            }
+            prepped_coiled_kwargs["extra_kwargs"] = {"package_sync_conda_extras": ["git"]}
 
     # Create coiled function
     @coiled.function(**prepped_coiled_kwargs)
@@ -667,9 +646,7 @@ def analyze_repositories(  # noqa: C901
     ):
         log.info(f"Loading cached errors from {cache_errors_path}")
         previously_errored_repos = pl.read_parquet(cache_errors_path)
-        previously_processed_errors_repo_paths = previously_errored_repos[
-            "repo_path"
-        ].to_list()
+        previously_processed_errors_repo_paths = previously_errored_repos["repo_path"].to_list()
         errors = previously_errored_repos.to_dicts()
     else:
         previously_processed_errors_repo_paths = []
@@ -689,9 +666,7 @@ def analyze_repositories(  # noqa: C901
 
     # Remove previously processed repos from repo_paths
     to_process_repo_paths = [
-        rp
-        for rp in repo_paths
-        if rp not in all_previously_processed_or_errored_repo_paths
+        rp for rp in repo_paths if rp not in all_previously_processed_or_errored_repo_paths
     ]
 
     # Prepare GitHub tokens
@@ -704,7 +679,7 @@ def analyze_repositories(  # noqa: C901
             github_tokens = [github_tokens]
 
     # Check for GitHub tokens file
-    if isinstance(github_tokens, (str, Path)):
+    if isinstance(github_tokens, str | Path):
         # Read with gh tokens loader
         gh_tokens_cycler = GitHubTokensCycler(github_tokens)
     elif isinstance(github_tokens, list):
