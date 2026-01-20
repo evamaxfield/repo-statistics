@@ -22,9 +22,6 @@ repos:
         entry: ty check
         language: system
         types: [python]
-        additional_dependencies:
-          - "types-requests"
-          - "types-PyYAML"
 
   # Notebooks
   - repo: https://github.com/nbQA-dev/nbQA

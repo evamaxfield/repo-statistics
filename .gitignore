@@ -134,5 +134,8 @@ CLAUDE.md
 # Project specific
 .github-tokens.yml
 .github-tokens.yaml
+example-repo-metrics.json
+pytest-repo-errors.parquet
+pytest-repo-metrics.parquet
 
 # Ignored data files

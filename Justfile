@@ -23,11 +23,15 @@ clean:
 # install with all deps
 install:
 	pip install uv
-	uv pip install -e ".[lint,modeling]"
+	uv pip install -e ".[lint,dev,coiled]"
 
 # lint, format, and check all files
 lint:
 	prek run --all-files
+
+# test all files
+test:
+	pytest
 
 ###############################################################################
 # Release and versioning

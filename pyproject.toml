@@ -79,8 +79,7 @@ include-package-data = true
 exclude = ["*docs/*", "*tests/*"]
 
 [tool.setuptools.package-data]
-"*" = ["py.typed"]
-"*" = ["*.yaml", "*.yml", "py.typed"]
+"*" = ["*.yaml", "*.yml", "*.json", "py.typed"]
 
 # tools
 # https://github.com/charliermarsh/ruff
