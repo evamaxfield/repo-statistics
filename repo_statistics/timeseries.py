@@ -131,31 +131,39 @@ class ChangeSpanResults(DataClassJsonMixin):
 def get_change_spans(
     periods_changed: list[int],
 ) -> ChangeSpanResults:
-    # Iter over list of periods changed and count periods between changes
-    did_change_spans = []
-    did_not_change_spans = []
-    in_change_span = False
-    did_change_current_periods = 0
-    did_not_change_current_periods = 0
-    for period in periods_changed:
-        if not in_change_span and period == 0:
-            did_not_change_current_periods += 1
-        if not in_change_span and period == 1:
-            did_not_change_spans.append(did_not_change_current_periods)
-            did_not_change_current_periods = 0
-            in_change_span = True
-            did_change_current_periods += 1
-        if in_change_span and period == 0:
-            did_change_spans.append(did_change_current_periods)
-            did_change_current_periods = 0
-            in_change_span = False
-            did_not_change_current_periods += 1
-        if in_change_span and period == 1:
-            did_change_current_periods += 1
+    """Count consecutive spans of change (1) and no-change (0) periods.
 
-    # Remove extra zero in either of the lists
-    did_change_spans = [span for span in did_change_spans if span != 0]
-    did_not_change_spans = [span for span in did_not_change_spans if span != 0]
+    For example, [0, 0, 1, 1, 1, 0, 0] would produce:
+    - did_change_spans: [3] (one span of 3 consecutive changes)
+    - did_not_change_spans: [2, 2] (two spans of 2 consecutive no-changes)
+    """
+    if len(periods_changed) == 0:
+        return ChangeSpanResults(did_change_spans=[], did_not_change_spans=[])
+
+    did_change_spans: list[int] = []
+    did_not_change_spans: list[int] = []
+    current_span_length = 1
+    current_is_change = periods_changed[0] == 1
+
+    for period in periods_changed[1:]:
+        is_change = period == 1
+        if is_change == current_is_change:
+            # Continue current span
+            current_span_length += 1
+        else:
+            # End current span and start new one
+            if current_is_change:
+                did_change_spans.append(current_span_length)
+            else:
+                did_not_change_spans.append(current_span_length)
+            current_span_length = 1
+            current_is_change = is_change
+
+    # Append the final span
+    if current_is_change:
+        did_change_spans.append(current_span_length)
+    else:
+        did_not_change_spans.append(current_span_length)
 
     return ChangeSpanResults(
         did_change_spans=did_change_spans,
