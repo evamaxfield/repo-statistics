@@ -290,8 +290,8 @@ def _analyze_repository(  # noqa: C901
 
         # Also get classification of project type
         project_type_classification = classification.get_heuristic_project_type(
-            starsgazers_count=platform_metrics.stargazers_count,
-            total_contibutors_count=contributor_count_results.total_contributor_count,
+            stargazers_count=platform_metrics.stargazers_count,
+            total_contributors_count=contributor_count_results.total_contributor_count,
         )
         all_metrics["project_type_heuristic_classification"] = project_type_classification
 

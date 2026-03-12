@@ -79,8 +79,20 @@ def compute_sloc_metrics(
             text=True,
         )
 
+        if pygount_output.returncode != 0:
+            raise RuntimeError(
+                f"pygount failed with return code {pygount_output.returncode}. "
+                f"stderr: {pygount_output.stderr.strip()}"
+            )
+
         # Read JSON
-        sloc_results = json.loads(pygount_output.stdout)
+        try:
+            sloc_results = json.loads(pygount_output.stdout)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"Failed to parse pygount JSON output: {e}. "
+                f"stdout: {pygount_output.stdout[:200]!r}"
+            ) from e
 
         # Iter over "files"
         total_lines_of_code = 0

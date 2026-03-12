@@ -123,8 +123,10 @@ def parse_timedelta(  # noqa: C901
         return s
     if isinstance(s, Number):
         s_str = str(s)
-    if isinstance(s, str):
+    elif isinstance(s, str):
         s_str = s
+    else:
+        raise TypeError(f"Expected timedelta, number, or string, got {type(s).__name__!r}")
 
     # Should be a string now, parse
     s_str = s_str.replace(" ", "")
@@ -349,12 +351,19 @@ def get_commit_hash_for_target_datetime(
 ) -> str:
     # If no target datetime is provided, return the latest commit hash
     if target_datetime is None:
+        if commits_df.is_empty():
+            raise ValueError("Cannot get commit hash: commits_df is empty.")
         latest_commit_hexsha = commits_df.sort(datetime_col, descending=True)["commit_hash"][0]
         return latest_commit_hexsha
 
     # Find the latest commit hash up to the target datetime
     target_datetime_dt = parse_datetime(target_datetime)
     commits_up_to_target = commits_df.filter(pl.col(datetime_col) <= target_datetime_dt)
+    if commits_up_to_target.is_empty():
+        raise ValueError(
+            f"No commits found on or before target datetime '{target_datetime}'. "
+            "Ensure the target datetime is within the repository's commit history."
+        )
     latest_commit_hexsha = commits_up_to_target.sort(datetime_col, descending=True)[
         "commit_hash"
     ][0]

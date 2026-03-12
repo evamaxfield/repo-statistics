@@ -382,10 +382,14 @@ def _compute_file_subset_change_dates(
     # Filter subset to changes with at least that many lines changed
     substantial_changes_df = subset_df.filter(pl.col(lines_changed_col) >= lines_change_target)
     # Sort substantial changes by datetime descending and get most recent
-    most_recent_substantial_dt = cast(
-        datetime,
-        substantial_changes_df.sort(by=datetime_col, descending=True)[datetime_col][0],
-    )
+    # Fall back to most_recent_change_dt if no substantial changes found
+    if len(substantial_changes_df) == 0:
+        most_recent_substantial_dt = most_recent_change_dt
+    else:
+        most_recent_substantial_dt = cast(
+            datetime,
+            substantial_changes_df.sort(by=datetime_col, descending=True)[datetime_col][0],
+        )
 
     return _FileSubsetChangeDates(
         initial_change_datetime=initial_change_dt.isoformat(),

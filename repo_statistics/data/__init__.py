@@ -64,7 +64,7 @@ def load_file_formats_dataframe() -> pl.DataFrame:  # noqa: C901
                         records.append(
                             {
                                 "language": language,
-                                "filename": filename,
+                                "filename": str(filename).lower(),
                                 "extension": None,
                                 "type": attributes.get("type", None),
                             }
@@ -77,7 +77,7 @@ def load_file_formats_dataframe() -> pl.DataFrame:  # noqa: C901
                             {
                                 "language": language,
                                 "filename": None,
-                                "extension": extension,
+                                "extension": str(extension).lower(),
                                 "type": attributes.get("type", None),
                             }
                         )
