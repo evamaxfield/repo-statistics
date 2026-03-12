@@ -744,7 +744,7 @@ def analyze_repositories(  # noqa: C901
             )
 
         results.extend(batch_results)
-        errors.extend(batch_errors)
+        errors.extend([e.to_dict() for e in batch_errors])
 
         # Cache intermediate results
         if cache_results_path is not None and len(results) > 0:
