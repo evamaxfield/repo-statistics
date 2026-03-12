@@ -28,7 +28,7 @@ install:
 # run linting
 lint:
 	ruff check . --fix
-	ruff format . --fix
+	ruff format .
 	ty check
 
 # test all files
