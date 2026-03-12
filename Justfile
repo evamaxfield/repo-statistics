@@ -25,9 +25,11 @@ install:
 	pip install uv
 	uv pip install -e ".[lint,dev,coiled]"
 
-# lint, format, and check all files
+# run linting
 lint:
-	prek run --all-files
+	ruff check . --fix
+	ruff format . --fix
+	ty check
 
 # test all files
 test:
