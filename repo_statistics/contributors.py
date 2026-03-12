@@ -100,26 +100,21 @@ def compute_contributor_stability_metrics(
     project_duration = (end_datetime_dt - start_datetime_dt).days
 
     # Get contribution spans for each contributor
-    contributor_spans: list[int] = []
-    contributor_stability: list[str] = []
-    for _, contributor_commits in commits_df.group_by(contributor_name_col):
-        # Get first and last commit dates
-        first_commit = cast(datetime, contributor_commits[datetime_col].min())
-        last_commit = cast(datetime, contributor_commits[datetime_col].max())
-
-        # Calculate contribution span in days
-        span_days = (last_commit - first_commit).days
-        contributor_spans.append(span_days)
-
-        # Classify as stable/transient based on span compared to td
-        if span_days >= td.days:
-            contributor_stability.append("stable")
-        else:
-            contributor_stability.append("transient")
+    spans_df = (
+        commits_df.group_by(contributor_name_col)
+        .agg(
+            pl.col(datetime_col).min().alias("first_commit"),
+            pl.col(datetime_col).max().alias("last_commit"),
+        )
+        .with_columns(
+            (pl.col("last_commit") - pl.col("first_commit")).dt.total_days().alias("span_days")
+        )
+    )
+    contributor_spans = spans_df["span_days"].to_list()
 
     # Calculate metrics
-    stable_count = sum(1 for x in contributor_stability if x == "stable")
-    transient_count = sum(1 for x in contributor_stability if x == "transient")
+    stable_count = int((spans_df["span_days"] >= td.days).sum())
+    transient_count = int((spans_df["span_days"] < td.days).sum())
 
     # Calculate span statistics (convert numpy types to Python floats)
     median_span = float(np.median(contributor_spans)) if contributor_spans else 0.0
@@ -174,39 +169,24 @@ def compute_contributor_absence_factor(
             unknown_contributor_absence_factor=0,
         )
 
-    # Pre-initialize dict for lines changed by file type
+    # Aggregate lines changed per contributor for all file subsets in one pass
     file_subsets = ["total", *[ft.value for ft in constants.FileTypes]]
-    all_file_subsets_lines_change_per_contrib: dict[str, list[int]] = {
-        fs: [] for fs in file_subsets
-    }
+    sums_df = commits_df.group_by(contributor_name_col).agg(
+        [pl.col(f"{fs}_lines_changed").sum().alias(fs) for fs in file_subsets]
+    )
 
-    # Collect lines changed per contributor for each file subset
-    for _, contributor_group in commits_df.group_by(contributor_name_col):
-        for file_subset in file_subsets:
-            lines_changed_col = f"{file_subset}_lines_changed"
-            all_file_subsets_lines_change_per_contrib[file_subset].append(
-                int(contributor_group[lines_changed_col].sum())
-            )
-
-    # Sort all lists, sum, get half, then find min number of contributors to reach half
+    # For each file subset, find the minimum number of contributors that account for >= 50%
     contrib_absence_factor_per_file_subset: dict[str, int] = {}
-    for (
-        file_subset,
-        lines_changed_per_contrib,
-    ) in all_file_subsets_lines_change_per_contrib.items():
-        descending_lines_changed_per_contrib = sorted(lines_changed_per_contrib, reverse=True)
-        lines_changed_sum = sum(descending_lines_changed_per_contrib)
-        half_lines_changed_sum = lines_changed_sum / 2
-        contributors_to_half = 0
-        current_total = 0
-        for contributor_lines_changed in descending_lines_changed_per_contrib:
-            current_total += contributor_lines_changed
-            contributors_to_half += 1
-            if current_total >= half_lines_changed_sum:
-                break
-
-        contrib_absence_factor_per_file_subset[f"{file_subset}_contributor_absence_factor"] = (
-            contributors_to_half
+    for fs in file_subsets:
+        col = sums_df[fs].sort(descending=True)
+        total = col.sum()
+        if total == 0:
+            absence_factor = 0
+        else:
+            cumsum = col.cum_sum()
+            absence_factor = int((cumsum < total / 2).sum()) + 1
+        contrib_absence_factor_per_file_subset[f"{fs}_contributor_absence_factor"] = (
+            absence_factor
         )
 
     return ContributorAbsenceFactorMetrics(**contrib_absence_factor_per_file_subset)
@@ -295,16 +275,18 @@ def _compute_single_file_subset_contributor_distribution(
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
 ) -> SingleFileSubsetContributorDistributionMetrics:
     # Handle files per contributor
-    files_per_contributor_vector = []
-    for _, contributor_group in filetype_filtered_df.group_by(contributor_name_col):
-        # Add the number of unique files touched by this contributor
-        files_per_contributor_vector.append(contributor_group["filename"].n_unique())
+    files_per_contributor_vector = (
+        filetype_filtered_df.group_by(contributor_name_col)
+        .agg(pl.col("filename").n_unique().alias("n"))["n"]
+        .to_list()
+    )
 
     # Handle contributors per file
-    contributors_per_file_vector = []
-    for _, file_group in filetype_filtered_df.group_by("filename"):
-        # Add the number of unique contributors who touched this file
-        contributors_per_file_vector.append(file_group[contributor_name_col].n_unique())
+    contributors_per_file_vector = (
+        filetype_filtered_df.group_by("filename")
+        .agg(pl.col(contributor_name_col).n_unique().alias("n"))["n"]
+        .to_list()
+    )
 
     # Handle single contributor case
     if len(files_per_contributor_vector) == 1:
@@ -340,30 +322,24 @@ def _compute_single_file_subset_contributor_distribution(
 
     # Handle no files per contributor
     if len(files_per_contributor_vector) > 0:
-        # Get the median number of files changed per contributor
-        twenty_fifth_percentile_files_per_contributor = np.percentile(
-            files_per_contributor_vector, 25
+        files_arr = np.array(files_per_contributor_vector)
+        twenty_fifth_percentile_files_per_contributor = np.percentile(files_arr, 25)
+        median_files_per_contributor = np.median(files_arr)
+
+        simple_threshold_specialist_count = int((files_arr <= 3).sum())
+        simple_threshold_generalist_count = int((files_arr > 3).sum())
+        median_threshold_specialist_count = int(
+            (files_arr <= median_files_per_contributor).sum()
         )
-        median_files_per_contributor = np.median(files_per_contributor_vector)
-
-        for contributor_files_count in files_per_contributor_vector:
-            # Handle simple threshold
-            if contributor_files_count <= 3:
-                simple_threshold_specialist_count += 1
-            else:
-                simple_threshold_generalist_count += 1
-
-            # Handle median threshold
-            if contributor_files_count <= median_files_per_contributor:
-                median_threshold_specialist_count += 1
-            else:
-                median_threshold_generalist_count += 1
-
-            # Handle 25th percentile threshold
-            if contributor_files_count <= twenty_fifth_percentile_files_per_contributor:
-                twenty_fifth_percentile_threshold_specialist_count += 1
-            else:
-                twenty_fifth_percentile_threshold_generalist_count += 1
+        median_threshold_generalist_count = int(
+            (files_arr > median_files_per_contributor).sum()
+        )
+        twenty_fifth_percentile_threshold_specialist_count = int(
+            (files_arr <= twenty_fifth_percentile_files_per_contributor).sum()
+        )
+        twenty_fifth_percentile_threshold_generalist_count = int(
+            (files_arr > twenty_fifth_percentile_files_per_contributor).sum()
+        )
 
     # Compile metrics for this file subset
     return SingleFileSubsetContributorDistributionMetrics(
