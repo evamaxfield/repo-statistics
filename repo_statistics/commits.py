@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -75,6 +76,34 @@ class ParsedCommitsResult:
     commit_summaries: pl.DataFrame
 
 
+def _make_counters() -> dict[str, int]:
+    """Return a zeroed dict of all per-commit accumulator counters."""
+    return {
+        f"{prefix}_{suffix}": 0
+        for prefix in ("total", *[ft.value for ft in FileTypes])
+        for suffix in ("files_changed", "additions", "deletions", "lines_changed")
+    }
+
+
+def _accumulate_file_stat(
+    counters: dict[str, int],
+    filetype: str,
+    additions: int,
+    deletions: int,
+    lines_changed: int,
+) -> None:
+    """Update per-commit counters for one file stat line (mutates counters)."""
+    counters["total_files_changed"] += 1
+    counters["total_additions"] += additions
+    counters["total_deletions"] += deletions
+    counters["total_lines_changed"] += lines_changed
+    prefix = filetype if filetype in FileTypes else FileTypes.unknown.value
+    counters[f"{prefix}_files_changed"] += 1
+    counters[f"{prefix}_additions"] += additions
+    counters[f"{prefix}_deletions"] += deletions
+    counters[f"{prefix}_lines_changed"] += lines_changed
+
+
 def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     """
     Parse the commits in a Git repository to extract per-file commit deltas
@@ -94,117 +123,95 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     else:
         repo = Repo(repo_path)
 
-    # Get total number of commits for progress tracking
-    total_commit_count = int(repo.git.rev_list("--count", "HEAD"))
+    # Single subprocess: emit all commits with per-file numstat in one call.
+    # Each commit starts with a COMMIT| header line, followed by tab-separated
+    # file stat lines, separated by blank lines.
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "--format=COMMIT|%H|%an|%ae|%cn|%ce|%ai|%ci|%s",
+            "--numstat",
+            "--no-renames",
+            "HEAD",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=repo.working_dir,
+        check=True,
+    )
+    output = result.stdout
 
     # Init storage
     per_file_commit_deltas: list[PerFileCommitDelta] = []
     per_commit_summaries: list[CommitSummary] = []
 
-    # Iter over commits and collect data
-    for commit in tqdm(
-        repo.iter_commits(),
-        total=total_commit_count,
-        desc="Parsing commits",
-        unit="commit",
-        leave=False,
-    ):
-        authored_datetime = datetime.fromtimestamp(commit.authored_date)
-        committed_datetime = datetime.fromtimestamp(commit.committed_date)
-        commit_hash = commit.hexsha
-        commit_message = commit.message.strip()
-        committer_name = commit.committer.name if commit.committer else None
-        committer_email = commit.committer.email if commit.committer else None
-        author_name = commit.author.name if commit.author else None
-        author_email = commit.author.email if commit.author else None
+    # Per-commit state (set on each COMMIT| line)
+    current_authored_datetime: datetime | None = None
+    current_committed_datetime: datetime | None = None
+    current_commit_hash: str | None = None
+    current_commit_message: str | None = None
+    current_committer_name: str | None = None
+    current_committer_email: str | None = None
+    current_author_name: str | None = None
+    current_author_email: str | None = None
 
-        # Init per-commit counters
-        # Total
-        total_files_changed = 0
-        total_additions = 0
-        total_deletions = 0
-        total_lines_changed = 0
+    # Per-commit counters (reset on each COMMIT| line)
+    counters = _make_counters()
 
-        # By type
-        programming_files_changed = 0
-        programming_additions = 0
-        programming_deletions = 0
-        programming_lines_changed = 0
+    def _flush_commit() -> None:
+        per_commit_summaries.append(
+            CommitSummary(
+                authored_datetime=current_authored_datetime,  # type: ignore[arg-type]
+                committed_datetime=current_committed_datetime,  # type: ignore[arg-type]
+                commit_hash=current_commit_hash,  # type: ignore[arg-type]
+                commit_message=current_commit_message,  # type: ignore[arg-type]
+                committer_name=current_committer_name,
+                committer_email=current_committer_email,
+                author_name=current_author_name,
+                author_email=current_author_email,
+                **counters,
+            )
+        )
 
-        markup_files_changed = 0
-        markup_additions = 0
-        markup_deletions = 0
-        markup_lines_changed = 0
-
-        prose_files_changed = 0
-        prose_additions = 0
-        prose_deletions = 0
-        prose_lines_changed = 0
-
-        data_files_changed = 0
-        data_additions = 0
-        data_deletions = 0
-        data_lines_changed = 0
-
-        unknown_files_changed = 0
-        unknown_additions = 0
-        unknown_deletions = 0
-        unknown_lines_changed = 0
-
-        # Process diffs
-        for filename, file_stats in commit.stats.files.items():
-            # Get the file type
+    in_commit = False
+    for line in tqdm(output.splitlines(), desc="Parsing commits", leave=False):
+        if line.startswith("COMMIT|"):
+            if in_commit:
+                _flush_commit()
+            # maxsplit=8 so commit messages containing "|" are preserved intact
+            parts = line.split("|", 8)
+            current_commit_hash = parts[1]
+            current_author_name = parts[2] or None
+            current_author_email = parts[3] or None
+            current_committer_name = parts[4] or None
+            current_committer_email = parts[5] or None
+            current_authored_datetime = datetime.fromisoformat(parts[6]).replace(tzinfo=None)
+            current_committed_datetime = datetime.fromisoformat(parts[7]).replace(tzinfo=None)
+            current_commit_message = parts[8] if len(parts) > 8 else ""
+            # Reset counters
+            counters = _make_counters()
+            in_commit = True
+        elif "\t" in line and in_commit:
+            additions_str, deletions_str, filename = line.split("\t", 2)
+            # Binary files use "-" for both counts; treat as 0
+            additions = 0 if additions_str == "-" else int(additions_str)
+            deletions = 0 if deletions_str == "-" else int(deletions_str)
+            lines_changed = additions + deletions
             filetype = get_linguist_file_type(Path(filename).name)
 
-            # file_stats contains "insertions", "deletions", and "lines"
-            additions = file_stats["insertions"]
-            deletions = file_stats["deletions"]
-            lines_changed = file_stats["lines"]
+            _accumulate_file_stat(counters, filetype, additions, deletions, lines_changed)
 
-            # Update counts
-            total_additions += additions
-            total_deletions += deletions
-            total_lines_changed += lines_changed
-            total_files_changed += 1
-
-            # Update type-specific counts
-            if filetype == "programming":
-                programming_files_changed += 1
-                programming_additions += additions
-                programming_deletions += deletions
-                programming_lines_changed += lines_changed
-            elif filetype == "markup":
-                markup_files_changed += 1
-                markup_additions += additions
-                markup_deletions += deletions
-                markup_lines_changed += lines_changed
-            elif filetype == "prose":
-                prose_files_changed += 1
-                prose_additions += additions
-                prose_deletions += deletions
-                prose_lines_changed += lines_changed
-            elif filetype == "data":
-                data_files_changed += 1
-                data_additions += additions
-                data_deletions += deletions
-                data_lines_changed += lines_changed
-            else:
-                unknown_files_changed += 1
-                unknown_additions += additions
-                unknown_deletions += deletions
-                unknown_lines_changed += lines_changed
-
-            # Store per-file commit delta
             per_file_commit_deltas.append(
                 PerFileCommitDelta(
-                    authored_datetime=authored_datetime,
-                    committed_datetime=committed_datetime,
-                    commit_hash=commit_hash,
-                    commit_message=commit_message,
-                    committer_name=committer_name,
-                    committer_email=committer_email,
-                    author_name=author_name,
-                    author_email=author_email,
+                    authored_datetime=current_authored_datetime,  # type: ignore[arg-type]
+                    committed_datetime=current_committed_datetime,  # type: ignore[arg-type]
+                    commit_hash=current_commit_hash,  # type: ignore[arg-type]
+                    commit_message=current_commit_message,  # type: ignore[arg-type]
+                    committer_name=current_committer_name,
+                    committer_email=current_committer_email,
+                    author_name=current_author_name,
+                    author_email=current_author_email,
                     filename=filename,
                     filetype=filetype,
                     additions=additions,
@@ -212,44 +219,11 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
                     lines_changed=lines_changed,
                 )
             )
+        # blank lines are skipped implicitly
 
-        # Store per-commit summary
-        per_commit_summaries.append(
-            CommitSummary(
-                authored_datetime=authored_datetime,
-                committed_datetime=committed_datetime,
-                commit_hash=commit_hash,
-                commit_message=commit_message,
-                committer_name=committer_name,
-                committer_email=committer_email,
-                author_name=author_name,
-                author_email=author_email,
-                total_files_changed=total_files_changed,
-                total_additions=total_additions,
-                total_deletions=total_deletions,
-                total_lines_changed=total_lines_changed,
-                programming_files_changed=programming_files_changed,
-                programming_additions=programming_additions,
-                programming_deletions=programming_deletions,
-                programming_lines_changed=programming_lines_changed,
-                markup_files_changed=markup_files_changed,
-                markup_additions=markup_additions,
-                markup_deletions=markup_deletions,
-                markup_lines_changed=markup_lines_changed,
-                prose_files_changed=prose_files_changed,
-                prose_additions=prose_additions,
-                prose_deletions=prose_deletions,
-                prose_lines_changed=prose_lines_changed,
-                data_files_changed=data_files_changed,
-                data_additions=data_additions,
-                data_deletions=data_deletions,
-                data_lines_changed=data_lines_changed,
-                unknown_files_changed=unknown_files_changed,
-                unknown_additions=unknown_additions,
-                unknown_deletions=unknown_deletions,
-                unknown_lines_changed=unknown_lines_changed,
-            )
-        )
+    # Flush the final commit
+    if in_commit:
+        _flush_commit()
 
     return ParsedCommitsResult(
         per_file_commit_deltas=pl.DataFrame(per_file_commit_deltas),
