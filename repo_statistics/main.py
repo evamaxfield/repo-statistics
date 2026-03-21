@@ -19,12 +19,15 @@ from timeout_function_decorator import timeout
 from tqdm import tqdm
 
 from . import (
+    churn,
     classification,
     commits,
+    complexity,
     contributors,
     documentation,
     platform,
     source,
+    static_analysis,
     timeseries,
     utils,
 )
@@ -82,6 +85,9 @@ def _analyze_repository(  # noqa: C901
     compute_sloc_metrics: bool = True,
     compute_tag_metrics: bool = True,
     compute_platform_metrics: bool = True,
+    compute_churn_metrics: bool = True,
+    compute_complexity_metrics: bool = True,
+    compute_static_analysis_metrics: bool = True,
 ) -> dict:
     # Get processed at datetime
     processed_at_dt = datetime.now()
@@ -214,6 +220,19 @@ def _analyze_repository(  # noqa: C901
             for key, value in contributor_stability_metrics.to_dict().items():
                 all_metrics[f"{period_span_key}_{key}"] = value
 
+        if compute_churn_metrics:
+            log.debug(f"Computing code churn metrics for period span: {period_span}")
+            churn_results = churn.compute_code_churn(
+                per_file_commit_deltas_df=per_file_commit_deltas_df,
+                period_span=period_span,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                datetime_col=datetime_col,
+            )
+
+            for key, value in churn_results.to_dict().items():
+                all_metrics[f"{period_span_key}_{key}"] = value
+
     # Compute other contributor metrics
     if compute_contributor_absence_factor:
         log.debug("Computing contributor absence factor metrics")
@@ -278,6 +297,30 @@ def _analyze_repository(  # noqa: C901
 
         all_metrics.update(tag_metrics.to_dict())
 
+    # Compute complexity metrics
+    if compute_complexity_metrics:
+        log.debug("Computing complexity metrics")
+        complexity_results = complexity.compute_complexity_metrics(
+            repo_path=repo_path,
+            commits_df=commits_df,
+            target_datetime=end_datetime,
+            datetime_col=datetime_col,
+        )
+
+        all_metrics.update(complexity_results.to_dict())
+
+    # Compute static analysis metrics
+    if compute_static_analysis_metrics:
+        log.debug("Computing static analysis metrics")
+        static_analysis_results = static_analysis.compute_static_analysis_metrics(
+            repo_path=repo_path,
+            commits_df=commits_df,
+            target_datetime=end_datetime,
+            datetime_col=datetime_col,
+        )
+
+        all_metrics.update(static_analysis_results.to_dict())
+
     # Compute platform metrics
     if compute_platform_metrics:
         log.debug("Computing platform metrics")
@@ -317,6 +360,9 @@ def analyze_repository(
     compute_sloc_metrics: bool = True,
     compute_tag_metrics: bool = True,
     compute_platform_metrics: bool = True,
+    compute_churn_metrics: bool = True,
+    compute_complexity_metrics: bool = True,
+    compute_static_analysis_metrics: bool = True,
     clone_timeout_seconds: int = 60,
     analyze_timeout_seconds: int = 600,
 ) -> dict | TrackedErrorResult:
@@ -385,6 +431,9 @@ def analyze_repository(
                     compute_sloc_metrics=compute_sloc_metrics,
                     compute_tag_metrics=compute_tag_metrics,
                     compute_platform_metrics=compute_platform_metrics,
+                    compute_churn_metrics=compute_churn_metrics,
+                    compute_complexity_metrics=compute_complexity_metrics,
+                    compute_static_analysis_metrics=compute_static_analysis_metrics,
                 )
             except Exception as e:
                 return TrackedErrorResult(
@@ -414,6 +463,9 @@ def analyze_repository(
                 compute_sloc_metrics=compute_sloc_metrics,
                 compute_tag_metrics=compute_tag_metrics,
                 compute_platform_metrics=compute_platform_metrics,
+                compute_churn_metrics=compute_churn_metrics,
+                compute_complexity_metrics=compute_complexity_metrics,
+                compute_static_analysis_metrics=compute_static_analysis_metrics,
             )
         except Exception as e:
             return TrackedErrorResult(

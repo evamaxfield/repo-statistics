@@ -39,6 +39,7 @@ dependencies = [
   "pyyaml>=6,<7",
   "timeout-function-decorator>=2,<3",
   "tqdm>=4,<5",
+  "multimetric>=2,<3",
 ]
 
 # extra dependencies

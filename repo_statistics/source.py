@@ -32,9 +32,15 @@ class SLOCResults(DataClassJsonMixin):
     data_lines_of_comments: int
     unknown_lines_of_code: int
     unknown_lines_of_comments: int
+    total_code_to_comment_ratio: float | None
+    programming_code_to_comment_ratio: float | None
+    markup_code_to_comment_ratio: float | None
+    prose_code_to_comment_ratio: float | None
+    data_code_to_comment_ratio: float | None
+    unknown_code_to_comment_ratio: float | None
 
 
-def compute_sloc_metrics(
+def compute_sloc_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None = None,
@@ -131,6 +137,9 @@ def compute_sloc_metrics(
                 unknown_lines_of_code += file["codeCount"]
                 unknown_lines_of_comments += file["documentationCount"]
 
+        def _ratio(code: int, comments: int) -> float | None:
+            return code / comments if comments > 0 else None
+
         return SLOCResults(
             total_lines_of_code=total_lines_of_code,
             total_lines_of_comments=total_lines_of_comments,
@@ -144,6 +153,16 @@ def compute_sloc_metrics(
             data_lines_of_comments=data_lines_of_comments,
             unknown_lines_of_code=unknown_lines_of_code,
             unknown_lines_of_comments=unknown_lines_of_comments,
+            total_code_to_comment_ratio=_ratio(total_lines_of_code, total_lines_of_comments),
+            programming_code_to_comment_ratio=_ratio(
+                programming_lines_of_code, programming_lines_of_comments
+            ),
+            markup_code_to_comment_ratio=_ratio(markup_lines_of_code, markup_lines_of_comments),
+            prose_code_to_comment_ratio=_ratio(prose_lines_of_code, prose_lines_of_comments),
+            data_code_to_comment_ratio=_ratio(data_lines_of_code, data_lines_of_comments),
+            unknown_code_to_comment_ratio=_ratio(
+                unknown_lines_of_code, unknown_lines_of_comments
+            ),
         )
 
     finally:
