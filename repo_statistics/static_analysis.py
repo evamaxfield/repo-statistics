@@ -44,31 +44,15 @@ _OTHER_KEYS = [
 
 _ALL_METRIC_KEYS = _HALSTEAD_KEYS + _OPERATOR_OPERAND_KEYS + _OTHER_KEYS
 
-# File type prefixes
-_FILE_TYPE_PREFIXES = ["total", "programming", "markup", "prose", "data", "unknown"]
+_AGGREGATIONS = ["mean", "median", "std", "sum"]
 
 
 def _empty_results() -> "StaticAnalysisResults":
     kwargs: dict = {}
-    for prefix in _FILE_TYPE_PREFIXES:
-        # Halstead: mean/median/sum for volume, mean for others
-        kwargs[f"{prefix}_halstead_volume_mean"] = None
-        kwargs[f"{prefix}_halstead_volume_median"] = None
-        kwargs[f"{prefix}_halstead_volume_sum"] = None
-        kwargs[f"{prefix}_halstead_difficulty_mean"] = None
-        kwargs[f"{prefix}_halstead_effort_mean"] = None
-        kwargs[f"{prefix}_halstead_timerequired_mean"] = None
-        kwargs[f"{prefix}_halstead_bugprop_mean"] = None
-        # Operator/operand sums
-        kwargs[f"{prefix}_operators_sum"] = None
-        kwargs[f"{prefix}_operators_uniq"] = None
-        kwargs[f"{prefix}_operands_sum"] = None
-        kwargs[f"{prefix}_operands_uniq"] = None
-        # Pylint and maintainability
-        kwargs[f"{prefix}_pylint_mean"] = None
-        kwargs[f"{prefix}_maintainability_index_mean"] = None
-        # File count
-        kwargs[f"{prefix}_static_analysis_file_count"] = 0
+    for key in _ALL_METRIC_KEYS:
+        for agg in _AGGREGATIONS:
+            kwargs[f"{key}_{agg}"] = None
+    kwargs["static_analysis_file_count"] = 0
     return StaticAnalysisResults(**kwargs)
 
 
@@ -76,151 +60,78 @@ def _aggregate_metrics(
     file_metrics: list[dict],
 ) -> dict:
     if len(file_metrics) == 0:
-        return {
-            "halstead_volume_mean": None,
-            "halstead_volume_median": None,
-            "halstead_volume_sum": None,
-            "halstead_difficulty_mean": None,
-            "halstead_effort_mean": None,
-            "halstead_timerequired_mean": None,
-            "halstead_bugprop_mean": None,
-            "operators_sum": None,
-            "operators_uniq": None,
-            "operands_sum": None,
-            "operands_uniq": None,
-            "pylint_mean": None,
-            "maintainability_index_mean": None,
-            "static_analysis_file_count": 0,
-        }
+        result: dict = {}
+        for key in _ALL_METRIC_KEYS:
+            for agg in _AGGREGATIONS:
+                result[f"{key}_{agg}"] = None
+        result["static_analysis_file_count"] = 0
+        return result
 
-    def _safe_mean(key: str) -> float | None:
-        vals = [f[key] for f in file_metrics if key in f and f[key] is not None]
-        return float(np.mean(vals)) if vals else None
+    def _safe_vals(key: str) -> list:
+        return [f[key] for f in file_metrics if key in f and f[key] is not None]
 
-    def _safe_median(key: str) -> float | None:
-        vals = [f[key] for f in file_metrics if key in f and f[key] is not None]
-        return float(np.median(vals)) if vals else None
-
-    def _safe_sum(key: str) -> int | None:
-        vals = [f[key] for f in file_metrics if key in f and f[key] is not None]
-        return int(np.sum(vals)) if vals else None
-
-    volumes = [
-        f["halstead_volume"]
-        for f in file_metrics
-        if "halstead_volume" in f and f["halstead_volume"] is not None
-    ]
-
-    return {
-        "halstead_volume_mean": float(np.mean(volumes)) if volumes else None,
-        "halstead_volume_median": float(np.median(volumes)) if volumes else None,
-        "halstead_volume_sum": float(np.sum(volumes)) if volumes else None,
-        "halstead_difficulty_mean": _safe_mean("halstead_difficulty"),
-        "halstead_effort_mean": _safe_mean("halstead_effort"),
-        "halstead_timerequired_mean": _safe_mean("halstead_timerequired"),
-        "halstead_bugprop_mean": _safe_mean("halstead_bugprop"),
-        "operators_sum": _safe_sum("operators_sum"),
-        "operators_uniq": _safe_sum("operators_uniq"),
-        "operands_sum": _safe_sum("operands_sum"),
-        "operands_uniq": _safe_sum("operands_uniq"),
-        "pylint_mean": _safe_mean("pylint"),
-        "maintainability_index_mean": _safe_mean("maintainability_index"),
-        "static_analysis_file_count": len(file_metrics),
-    }
+    result: dict = {}
+    for key in _ALL_METRIC_KEYS:
+        vals = _safe_vals(key)
+        result[f"{key}_mean"] = float(np.mean(vals)) if vals else None
+        result[f"{key}_median"] = float(np.median(vals)) if vals else None
+        result[f"{key}_std"] = float(np.std(vals)) if vals else None
+        result[f"{key}_sum"] = float(np.sum(vals)) if vals else None
+    result["static_analysis_file_count"] = len(file_metrics)
+    return result
 
 
 @dataclass
 class StaticAnalysisResults(DataClassJsonMixin):
-    # Total
-    total_halstead_volume_mean: float | None
-    total_halstead_volume_median: float | None
-    total_halstead_volume_sum: float | None
-    total_halstead_difficulty_mean: float | None
-    total_halstead_effort_mean: float | None
-    total_halstead_timerequired_mean: float | None
-    total_halstead_bugprop_mean: float | None
-    total_operators_sum: int | None
-    total_operators_uniq: int | None
-    total_operands_sum: int | None
-    total_operands_uniq: int | None
-    total_pylint_mean: float | None
-    total_maintainability_index_mean: float | None
-    total_static_analysis_file_count: int
-    # Programming
-    programming_halstead_volume_mean: float | None
-    programming_halstead_volume_median: float | None
-    programming_halstead_volume_sum: float | None
-    programming_halstead_difficulty_mean: float | None
-    programming_halstead_effort_mean: float | None
-    programming_halstead_timerequired_mean: float | None
-    programming_halstead_bugprop_mean: float | None
-    programming_operators_sum: int | None
-    programming_operators_uniq: int | None
-    programming_operands_sum: int | None
-    programming_operands_uniq: int | None
-    programming_pylint_mean: float | None
-    programming_maintainability_index_mean: float | None
-    programming_static_analysis_file_count: int
-    # Markup
-    markup_halstead_volume_mean: float | None
-    markup_halstead_volume_median: float | None
-    markup_halstead_volume_sum: float | None
-    markup_halstead_difficulty_mean: float | None
-    markup_halstead_effort_mean: float | None
-    markup_halstead_timerequired_mean: float | None
-    markup_halstead_bugprop_mean: float | None
-    markup_operators_sum: int | None
-    markup_operators_uniq: int | None
-    markup_operands_sum: int | None
-    markup_operands_uniq: int | None
-    markup_pylint_mean: float | None
-    markup_maintainability_index_mean: float | None
-    markup_static_analysis_file_count: int
-    # Prose
-    prose_halstead_volume_mean: float | None
-    prose_halstead_volume_median: float | None
-    prose_halstead_volume_sum: float | None
-    prose_halstead_difficulty_mean: float | None
-    prose_halstead_effort_mean: float | None
-    prose_halstead_timerequired_mean: float | None
-    prose_halstead_bugprop_mean: float | None
-    prose_operators_sum: int | None
-    prose_operators_uniq: int | None
-    prose_operands_sum: int | None
-    prose_operands_uniq: int | None
-    prose_pylint_mean: float | None
-    prose_maintainability_index_mean: float | None
-    prose_static_analysis_file_count: int
-    # Data
-    data_halstead_volume_mean: float | None
-    data_halstead_volume_median: float | None
-    data_halstead_volume_sum: float | None
-    data_halstead_difficulty_mean: float | None
-    data_halstead_effort_mean: float | None
-    data_halstead_timerequired_mean: float | None
-    data_halstead_bugprop_mean: float | None
-    data_operators_sum: int | None
-    data_operators_uniq: int | None
-    data_operands_sum: int | None
-    data_operands_uniq: int | None
-    data_pylint_mean: float | None
-    data_maintainability_index_mean: float | None
-    data_static_analysis_file_count: int
-    # Unknown
-    unknown_halstead_volume_mean: float | None
-    unknown_halstead_volume_median: float | None
-    unknown_halstead_volume_sum: float | None
-    unknown_halstead_difficulty_mean: float | None
-    unknown_halstead_effort_mean: float | None
-    unknown_halstead_timerequired_mean: float | None
-    unknown_halstead_bugprop_mean: float | None
-    unknown_operators_sum: int | None
-    unknown_operators_uniq: int | None
-    unknown_operands_sum: int | None
-    unknown_operands_uniq: int | None
-    unknown_pylint_mean: float | None
-    unknown_maintainability_index_mean: float | None
-    unknown_static_analysis_file_count: int
+    # Halstead metrics (programming files only)
+    halstead_volume_mean: float | None
+    halstead_volume_median: float | None
+    halstead_volume_std: float | None
+    halstead_volume_sum: float | None
+    halstead_difficulty_mean: float | None
+    halstead_difficulty_median: float | None
+    halstead_difficulty_std: float | None
+    halstead_difficulty_sum: float | None
+    halstead_effort_mean: float | None
+    halstead_effort_median: float | None
+    halstead_effort_std: float | None
+    halstead_effort_sum: float | None
+    halstead_timerequired_mean: float | None
+    halstead_timerequired_median: float | None
+    halstead_timerequired_std: float | None
+    halstead_timerequired_sum: float | None
+    halstead_bugprop_mean: float | None
+    halstead_bugprop_median: float | None
+    halstead_bugprop_std: float | None
+    halstead_bugprop_sum: float | None
+    # Operator/operand metrics
+    operators_sum_mean: float | None
+    operators_sum_median: float | None
+    operators_sum_std: float | None
+    operators_sum_sum: float | None
+    operators_uniq_mean: float | None
+    operators_uniq_median: float | None
+    operators_uniq_std: float | None
+    operators_uniq_sum: float | None
+    operands_sum_mean: float | None
+    operands_sum_median: float | None
+    operands_sum_std: float | None
+    operands_sum_sum: float | None
+    operands_uniq_mean: float | None
+    operands_uniq_median: float | None
+    operands_uniq_std: float | None
+    operands_uniq_sum: float | None
+    # Pylint and maintainability
+    pylint_mean: float | None
+    pylint_median: float | None
+    pylint_std: float | None
+    pylint_sum: float | None
+    maintainability_index_mean: float | None
+    maintainability_index_median: float | None
+    maintainability_index_std: float | None
+    maintainability_index_sum: float | None
+    # File count
+    static_analysis_file_count: int
 
 
 def _extract_file_metrics(file_data: dict) -> dict:
@@ -309,30 +220,15 @@ def compute_static_analysis_metrics(  # noqa: C901
             log.warning(f"Failed to parse multimetric JSON output: {e}")
             return _empty_results()
 
-        # Classify files and collect per-type metrics
-        all_file_metrics: list[dict] = []
-        by_type: dict[str, list[dict]] = {ft.value: [] for ft in FileTypes}
+        # Collect metrics for programming files only
+        programming_file_metrics: list[dict] = []
 
         files_data = mm_output.get("files", {})
         for filepath, file_data in files_data.items():
-            metrics = _extract_file_metrics(file_data)
-            all_file_metrics.append(metrics)
-            file_type = get_linguist_file_type(filepath)
-            if file_type in by_type:
-                by_type[file_type].append(metrics)
+            if get_linguist_file_type(filepath) == FileTypes.programming.value:
+                programming_file_metrics.append(_extract_file_metrics(file_data))
 
-        # Aggregate per type
-        kwargs: dict = {}
-        total_agg = _aggregate_metrics(all_file_metrics)
-        for key, value in total_agg.items():
-            kwargs[f"total_{key}"] = value
-
-        for file_type in FileTypes:
-            type_agg = _aggregate_metrics(by_type[file_type.value])
-            for key, value in type_agg.items():
-                kwargs[f"{file_type.value}_{key}"] = value
-
-        return StaticAnalysisResults(**kwargs)
+        return StaticAnalysisResults(**_aggregate_metrics(programming_file_metrics))
 
     finally:
         repo.git.checkout(original_ref)
