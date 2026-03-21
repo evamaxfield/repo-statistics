@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Literal, cast
+from datetime import datetime, timedelta
+from typing import Any, Literal
 
 import numpy as np
 import polars as pl
@@ -28,18 +28,9 @@ class ContributorCountMetrics(DataClassJsonMixin):
 
 def compute_contributor_counts(
     commits_df: pl.DataFrame,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorCountMetrics:
-    # Parse datetimes and filter commits to range
-    # commits_df, _, _ = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
 
     # Get unique contributors for each file type
     contributor_counts: dict[str, int] = {}
@@ -66,8 +57,8 @@ class ContributorStabilityMetrics(DataClassJsonMixin):
 def compute_contributor_stability_metrics(
     commits_df: pl.DataFrame,
     period_span: str | float | timedelta,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
+    start_datetime: datetime,
+    end_datetime: datetime,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorStabilityMetrics:
@@ -85,19 +76,8 @@ def compute_contributor_stability_metrics(
             normalized_mean_contribution_span=0,
         )
 
-    # Parse datetimes and filter commits to range
-    # commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
-
-    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
-    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
-
     # Calculate project duration in days
-    project_duration = (end_datetime_dt - start_datetime_dt).days
+    project_duration = (end_datetime - start_datetime).days
 
     # Get contribution spans for each contributor
     spans_df = (
@@ -146,18 +126,9 @@ class ContributorAbsenceFactorMetrics(DataClassJsonMixin):
 
 def compute_contributor_absence_factor(
     commits_df: pl.DataFrame,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorAbsenceFactorMetrics:
-    # Parse datetimes and filter commits to range
-    # commits_df, _, _ = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
 
     if len(commits_df) == 0:
         return ContributorAbsenceFactorMetrics(
@@ -358,18 +329,9 @@ def _compute_single_file_subset_contributor_distribution(
 
 def compute_contributor_distribution_metrics(
     per_file_commit_deltas_df: pl.DataFrame,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> ContributorDistributionMetrics:
-    # Parse datetimes and filter commits to range
-    # per_file_commit_deltas_df, _, _ = filter_changes_to_dt_range(
-    #     changes_df=per_file_commit_deltas_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
 
     # Make each calculation for all file types
     file_subset_metrics: dict[str, SingleFileSubsetContributorDistributionMetrics] = {}
@@ -430,18 +392,9 @@ class ContributorChangeMetrics(DataClassJsonMixin):
 
 def compute_contributor_change_metrics(
     commits_df: pl.DataFrame,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
 ) -> ContributorChangeMetrics:
-    # Parse datetimes and filter commits to range
-    # commits_df, _, _ = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
 
     # Calculate commit count thresholds
     total_commits = len(commits_df)

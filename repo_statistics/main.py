@@ -9,7 +9,7 @@ from datetime import date, datetime
 from itertools import cycle
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
@@ -107,21 +107,25 @@ def _analyze_repository(  # noqa: C901
         )
 
     # Parse and filter changes to datetime range
-    # commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
-    # per_file_commit_deltas_df, _, _ = utils.filter_changes_to_dt_range(
-    #     changes_df=per_file_commit_deltas_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
+    commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
+        changes_df=commits_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
+    per_file_commit_deltas_df, _, _ = utils.filter_changes_to_dt_range(
+        changes_df=per_file_commit_deltas_df,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
 
-    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
-    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
+    # Post-filter minimum commits check
+    if len(commits_df) < 5:
+        raise ValueError(
+            f"Repository {parsed_repo.owner}/{parsed_repo.name} has less than 5 commits "
+            f"in the specified datetime range ({start_datetime_dt} to {end_datetime_dt})."
+        )
 
     # Storage for all metrics (use Any for values since to_dict() returns mixed types)
     all_metrics: dict[str, Any] = {
@@ -161,8 +165,6 @@ def _analyze_repository(  # noqa: C901
     log.debug("Computing commit counts")
     commit_count_results = commits.compute_commit_counts(
         commits_df=commits_df,
-        start_datetime=start_datetime_dt,
-        end_datetime=end_datetime_dt,
         datetime_col=datetime_col,
     )
     all_metrics.update(commit_count_results.to_dict())
@@ -171,8 +173,6 @@ def _analyze_repository(  # noqa: C901
     log.debug("Computing important change dates")
     important_change_date_results = commits.compute_important_change_dates(
         commits_df=commits_df,
-        start_datetime=start_datetime_dt,
-        end_datetime=end_datetime_dt,
         datetime_col=datetime_col,
         substantial_change_threshold_quantile=substantial_change_threshold_quantile,
     )
@@ -182,8 +182,6 @@ def _analyze_repository(  # noqa: C901
     log.debug("Computing contributor counts")
     contributor_count_results = contributors.compute_contributor_counts(
         commits_df=commits_df,
-        start_datetime=start_datetime_dt,
-        end_datetime=end_datetime_dt,
         contributor_name_col=contributor_name_col,
         datetime_col=datetime_col,
     )
@@ -198,8 +196,8 @@ def _analyze_repository(  # noqa: C901
             timeseries_metrics = timeseries.compute_timeseries_metrics(
                 commits_df=commits_df,
                 period_span=period_span,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
+                start_datetime=start_datetime_dt,
+                end_datetime=end_datetime_dt,
                 datetime_col=datetime_col,
             )
 
@@ -211,8 +209,8 @@ def _analyze_repository(  # noqa: C901
             contributor_stability_metrics = contributors.compute_contributor_stability_metrics(
                 commits_df=commits_df,
                 period_span=period_span,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
+                start_datetime=start_datetime_dt,
+                end_datetime=end_datetime_dt,
                 contributor_name_col=contributor_name_col,
                 datetime_col=datetime_col,
             )
@@ -225,8 +223,8 @@ def _analyze_repository(  # noqa: C901
             churn_results = churn.compute_code_churn(
                 per_file_commit_deltas_df=per_file_commit_deltas_df,
                 period_span=period_span,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
+                start_datetime=start_datetime_dt,
+                end_datetime=end_datetime_dt,
                 datetime_col=datetime_col,
             )
 
@@ -238,8 +236,6 @@ def _analyze_repository(  # noqa: C901
         log.debug("Computing contributor absence factor metrics")
         contributor_absence_factor_metrics = contributors.compute_contributor_absence_factor(
             commits_df=commits_df,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
             contributor_name_col=contributor_name_col,
             datetime_col=datetime_col,
         )
@@ -252,8 +248,6 @@ def _analyze_repository(  # noqa: C901
         contributor_distribution_metrics = (
             contributors.compute_contributor_distribution_metrics(
                 per_file_commit_deltas_df=per_file_commit_deltas_df,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
                 contributor_name_col=contributor_name_col,
                 datetime_col=datetime_col,
             )

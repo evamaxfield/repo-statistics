@@ -2,7 +2,7 @@
 
 import subprocess
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, cast
 
@@ -381,8 +381,6 @@ def _compute_file_subset_change_dates(
 
 def compute_important_change_dates(
     commits_df: pl.DataFrame,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     substantial_change_threshold_quantile: float = 0.1,
 ) -> ImportantChangeDatesResults:
@@ -491,17 +489,8 @@ class CommitCountsResults(DataClassJsonMixin):
 
 def compute_commit_counts(
     commits_df: pl.DataFrame,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> CommitCountsResults:
-    # Parse datetimes and filter commits to range
-    # commits_df, _, _ = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
 
     results = {}
     for file_subset in ["total", *[ft.value for ft in FileTypes]]:

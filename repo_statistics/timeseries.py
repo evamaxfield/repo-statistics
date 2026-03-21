@@ -2,8 +2,8 @@
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Literal, cast
+from datetime import datetime, timedelta
+from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -37,8 +37,8 @@ class ChangePeriodResults(DataClassJsonMixin):
 def get_periods_changed(
     commits_df: pl.DataFrame,
     period_span: str | float | timedelta,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
+    start_datetime: datetime,
+    end_datetime: datetime,
     datetime_col: Literal[
         "authored_datetime",
         "committed_datetime",
@@ -64,19 +64,8 @@ def get_periods_changed(
             unknown_lines_changed_count=[],
         )
 
-    # Parse datetimes and filter commits to range
-    # commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
-
-    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
-    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
-
     # Calculate total periods
-    change_duration = end_datetime_dt - start_datetime_dt
+    change_duration = end_datetime - start_datetime
 
     # Always have at least one period
     n_tds = max(math.ceil(change_duration / td), 1)
@@ -98,7 +87,7 @@ def get_periods_changed(
         )
 
     # Iterate over periods and record binary or lines changed count
-    current_start_dt: datetime = start_datetime_dt
+    current_start_dt: datetime = start_datetime
     for _ in tqdm(range(n_tds), desc="Processing change periods", leave=False):
         # Get the subset of commits in this period
         commit_subset = commits_df.filter(
@@ -342,30 +331,19 @@ def _compute_metrics_from_periods_change_results(
 def compute_timeseries_metrics(
     commits_df: pl.DataFrame,
     period_span: str | float | timedelta,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
+    start_datetime: datetime,
+    end_datetime: datetime,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> TimeseriesMetrics:
     # Parse period span and datetimes
     td = parse_timedelta(period_span)
 
-    # Parse datetimes and filter commits to range
-    # commits_df, start_datetime_dt, end_datetime_dt = filter_changes_to_dt_range(
-    #     changes_df=commits_df,
-    #     start_datetime=start_datetime,
-    #     end_datetime=end_datetime,
-    #     datetime_col=datetime_col,
-    # )
-
-    start_datetime_dt = cast(datetime, commits_df[datetime_col].min())
-    end_datetime_dt = cast(datetime, commits_df[datetime_col].max())
-
     # Get periods changed
     periods_changed_results = get_periods_changed(
         commits_df=commits_df,
         period_span=td,
-        start_datetime=start_datetime_dt,
-        end_datetime=end_datetime_dt,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
         datetime_col=datetime_col,
     )
 

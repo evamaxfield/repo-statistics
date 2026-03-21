@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 import polars as pl
@@ -62,50 +62,24 @@ def _compute_churn_for_subset(
 def compute_code_churn(
     per_file_commit_deltas_df: pl.DataFrame,
     period_span: str | float | timedelta,
-    start_datetime: str | date | datetime | None = None,
-    end_datetime: str | date | datetime | None = None,
+    start_datetime: datetime,
+    end_datetime: datetime,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> CodeChurnResults:
     td = parse_timedelta(period_span)
     td_seconds = td.total_seconds()
 
-    # Determine start/end datetimes
-    if start_datetime is not None:
-        if isinstance(start_datetime, str):
-            start_dt = datetime.fromisoformat(start_datetime)
-        elif isinstance(start_datetime, date) and not isinstance(start_datetime, datetime):
-            start_dt = datetime(start_datetime.year, start_datetime.month, start_datetime.day)
-        else:
-            start_dt = start_datetime
-    else:
-        start_dt = per_file_commit_deltas_df[datetime_col].min()
-
-    if end_datetime is not None:
-        if isinstance(end_datetime, str):
-            end_dt = datetime.fromisoformat(end_datetime)
-        elif isinstance(end_datetime, date) and not isinstance(end_datetime, datetime):
-            end_dt = datetime(end_datetime.year, end_datetime.month, end_datetime.day)
-        else:
-            end_dt = end_datetime
-    else:
-        end_dt = per_file_commit_deltas_df[datetime_col].max()
-
-    # Filter to datetime range
-    df = per_file_commit_deltas_df.filter(
-        (pl.col(datetime_col) >= start_dt) & (pl.col(datetime_col) <= end_dt)
-    )
-
-    # Compute total churn
+    # Compute total churn (data is pre-filtered by caller)
     total_churn_lines, total_churn_normalized = _compute_churn_for_subset(
-        df, td_seconds, start_dt, datetime_col
+        per_file_commit_deltas_df, td_seconds, start_datetime, datetime_col
     )
 
     # Compute per file type
     results: dict[str, tuple[int, float | None]] = {}
     for file_type in FileTypes:
-        subset = df.filter(pl.col("filetype") == file_type.value)
+        subset = per_file_commit_deltas_df.filter(pl.col("filetype") == file_type.value)
         results[file_type.value] = _compute_churn_for_subset(
-            subset, td_seconds, start_dt, datetime_col
+            subset, td_seconds, start_datetime, datetime_col
         )
 
     return CodeChurnResults(

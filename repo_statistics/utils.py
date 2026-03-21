@@ -334,12 +334,8 @@ def filter_changes_to_dt_range(
     if len(changes_df) == 0:
         return changes_df, start_datetime_dt, end_datetime_dt
 
-    # Filter by start
-    if start_datetime_dt is not None:
-        changes_df = changes_df.filter(pl.col(datetime_col) >= start_datetime_dt)
-    # Filter by end
-    if end_datetime_dt is not None:
-        changes_df = changes_df.filter(pl.col(datetime_col) <= end_datetime_dt)
+    changes_df = changes_df.filter(pl.col(datetime_col) >= start_datetime_dt)
+    changes_df = changes_df.filter(pl.col(datetime_col) <= end_datetime_dt)
 
     return changes_df, start_datetime_dt, end_datetime_dt
 
