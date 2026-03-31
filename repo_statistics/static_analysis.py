@@ -38,7 +38,6 @@ _OPERATOR_OPERAND_KEYS = [
     "operands_uniq",
 ]
 _OTHER_KEYS = [
-    "pylint",
     "maintainability_index",
 ]
 
@@ -121,11 +120,7 @@ class StaticAnalysisResults(DataClassJsonMixin):
     operands_uniq_median: float | None
     operands_uniq_std: float | None
     operands_uniq_sum: float | None
-    # Pylint and maintainability
-    pylint_mean: float | None
-    pylint_median: float | None
-    pylint_std: float | None
-    pylint_sum: float | None
+    # Maintainability
     maintainability_index_mean: float | None
     maintainability_index_median: float | None
     maintainability_index_std: float | None
@@ -145,7 +140,6 @@ def _extract_file_metrics(file_data: dict) -> dict:
         "operators_uniq": file_data.get("operators_uniq"),
         "operands_sum": file_data.get("operands_sum"),
         "operands_uniq": file_data.get("operands_uniq"),
-        "pylint": file_data.get("pylint"),
         "maintainability_index": file_data.get("maintainability_index"),
     }
 

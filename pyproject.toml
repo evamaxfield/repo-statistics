@@ -47,7 +47,7 @@ dependencies = [
 [project.optional-dependencies]
 lint = [
   "ruff>=0.12",
-  "ty>=0.0.12",
+  "zuban>=0.6.1",
 ]
 dev = [
   "ipython",

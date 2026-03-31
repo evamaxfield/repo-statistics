@@ -57,7 +57,7 @@ def _request_platform_metrics_with_backoff(
     time.sleep(0.85)
 
     # Request
-    repo_data = api.repos.get(
+    repo_data = api.repos.get(  # type: ignore
         owner=repo_owner,
         repo=repo_name,
     )

@@ -361,7 +361,7 @@ def analyze_repository(
     analyze_timeout_seconds: int = 600,
 ) -> dict | TrackedErrorResult:
     # Wrap private analyze function with timeout
-    @timeout(analyze_timeout_seconds)
+    @timeout(analyze_timeout_seconds)  # type: ignore
     def _analyze_repository_with_timeout(
         **kwargs: Any,
     ) -> dict:
@@ -369,7 +369,7 @@ def analyze_repository(
             **kwargs,
         )
 
-    @timeout(clone_timeout_seconds)
+    @timeout(clone_timeout_seconds)  # type: ignore
     def _clone_repository_with_timeout(
         repo_path: str | Path,
         to_path: str | Path,
@@ -485,7 +485,7 @@ def _one_by_one_processing(
     batch_repo_paths: list[str | Path],
     github_token_cycler: Iterator[str | None],
     **analyze_repository_kwargs: Any,
-) -> tuple[list[dict], list[TrackedErrorResult]]:
+) -> tuple[list[dict], list[dict]]:
     batch_results = []
     batch_errors = []
 
@@ -515,7 +515,7 @@ def _multiple_threads_processing(
     github_token_cycler: Iterator[str | None],
     n_threads: int | None = None,
     **analyze_repository_kwargs: Any,
-) -> tuple[list[dict], list[TrackedErrorResult]]:
+) -> tuple[list[dict], list[dict]]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     batch_results = []
@@ -564,7 +564,7 @@ def _coiled_processing(
     github_token_cycler: Iterator[str | None],
     coiled_kwargs: dict | None = None,
     **analyze_repository_kwargs: Any,
-) -> tuple[list[dict], list[TrackedErrorResult]]:
+) -> tuple[list[dict], list[dict]]:
     try:
         import coiled
     except ImportError as e:
@@ -598,7 +598,7 @@ def _coiled_processing(
             prepped_coiled_kwargs["extra_kwargs"] = {"package_sync_conda_extras": ["git"]}
 
     # Create coiled function
-    @coiled.function(**prepped_coiled_kwargs)
+    @coiled.function(**prepped_coiled_kwargs)  # type: ignore
     def _analyze_repository_coiled(
         repo_path: str | Path,
         github_token: str | None = None,
@@ -609,6 +609,9 @@ def _coiled_processing(
             github_token=github_token,
             **analyze_repository_kwargs,
         )
+
+    # Typing needs to confirm that the wrapped function has a submit function
+    assert hasattr(_analyze_repository_coiled, "submit")
 
     # Submit coiled jobs
     futures = {
@@ -790,7 +793,7 @@ def analyze_repositories(  # noqa: C901
             )
 
         results.extend(batch_results)
-        errors.extend([e.to_dict() for e in batch_errors])
+        errors.extend(batch_errors)
 
         # Cache intermediate results
         if cache_results_path is not None and len(results) > 0:

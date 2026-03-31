@@ -29,7 +29,7 @@ install:
 lint:
 	ruff check . --fix
 	ruff format .
-	ty check
+	zuban check
 
 # test all files
 test:
