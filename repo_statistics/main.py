@@ -88,6 +88,7 @@ def _analyze_repository(  # noqa: C901
     compute_churn_metrics: bool = True,
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
+    install_complexity_if_missing: bool = False,
 ) -> dict:
     # Get processed at datetime
     processed_at_dt = datetime.now()
@@ -299,6 +300,7 @@ def _analyze_repository(  # noqa: C901
             commits_df=commits_df,
             target_datetime=end_datetime,
             datetime_col=datetime_col,
+            install_complexity_if_missing=install_complexity_if_missing,
         )
 
         all_metrics.update(complexity_results.to_dict())
@@ -359,6 +361,7 @@ def analyze_repository(
     compute_static_analysis_metrics: bool = True,
     clone_timeout_seconds: int = 60,
     analyze_timeout_seconds: int = 600,
+    install_complexity_if_missing: bool = True,
 ) -> dict | TrackedErrorResult:
     # Wrap private analyze function with timeout
     @timeout(analyze_timeout_seconds)  # type: ignore
@@ -428,6 +431,7 @@ def analyze_repository(
                     compute_churn_metrics=compute_churn_metrics,
                     compute_complexity_metrics=compute_complexity_metrics,
                     compute_static_analysis_metrics=compute_static_analysis_metrics,
+                    install_complexity_if_missing=install_complexity_if_missing,
                 )
             except Exception as e:
                 return TrackedErrorResult(
@@ -460,6 +464,7 @@ def analyze_repository(
                 compute_churn_metrics=compute_churn_metrics,
                 compute_complexity_metrics=compute_complexity_metrics,
                 compute_static_analysis_metrics=compute_static_analysis_metrics,
+                install_complexity_if_missing=install_complexity_if_missing,
             )
         except Exception as e:
             return TrackedErrorResult(
