@@ -56,7 +56,7 @@ def _compute_churn_for_subset(
     churn_lines = int(grouped.filter(pl.col("commit_count") > 1)["total_lines"].sum())
     churn_normalized = churn_lines / total_lines if total_lines > 0 else None
 
-    return churn_lines, churn_normalized
+    return churn_lines, float(churn_normalized) if churn_normalized is not None else None
 
 
 def compute_code_churn(
