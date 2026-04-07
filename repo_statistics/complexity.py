@@ -39,6 +39,22 @@ def _install_and_setup_complexity_cli() -> bool:
         check=True,
     )
     os_name = uname_result.stdout.strip().lower()
+
+    arch_result = subprocess.run(
+        ["uname", "-m"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    arch = arch_result.stdout.strip().lower()
+    if arch != "x86_64":
+        log.warning(
+            f"Unsupported architecture for automatic complexity installation: {arch}. "
+            "Only x86_64 binaries are available. "
+            "Please install complexity manually. Returning empty results."
+        )
+        return False
+
     if os_name == "linux":
         url = "https://github.com/thoughtbot/complexity/releases/download/0.3.0/complexity-0.3.0-x86_64-unknown-linux-musl.tar.gz"
     elif os_name == "darwin":
