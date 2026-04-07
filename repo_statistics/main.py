@@ -3,7 +3,7 @@
 import logging
 import os
 import traceback
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import cycle
@@ -337,6 +337,29 @@ def _analyze_repository(  # noqa: C901
     return all_metrics
 
 
+@dataclass
+class CloneRepositoryParams:
+    repo_path: str | Path
+    to_path: str | Path
+
+
+def get_clone_repository_with_timeout_func(
+    timeout_seconds: int,
+) -> Callable[[CloneRepositoryParams], Repo]:
+    @timeout(timeout_seconds)  # type: ignore
+    def clone_repository_with_timeout(
+        params: CloneRepositoryParams,
+    ) -> Repo:
+        repo = Repo.clone_from(
+            params.repo_path,
+            to_path=params.to_path,
+        )
+
+        return repo
+
+    return clone_repository_with_timeout
+
+
 def analyze_repository(
     repo_path: str | Path,
     github_token: str | None = None,
@@ -344,9 +367,9 @@ def analyze_repository(
     end_datetime: str | date | datetime | None = None,
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
-    period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
-    bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
-    bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
+    period_spans: Iterable[str] = ("1 week", "4 weeks"),
+    bot_name_indicators: Iterable[str] | None = ("[bot]",),
+    bot_email_indicators: Iterable[str] | None = ("[bot]",),
     substantial_change_threshold_quantile: float = 0.1,
     compute_timeseries_metrics: bool = True,
     compute_contributor_stability_metrics: bool = True,
@@ -372,18 +395,6 @@ def analyze_repository(
             **kwargs,
         )
 
-    @timeout(clone_timeout_seconds)  # type: ignore
-    def _clone_repository_with_timeout(
-        repo_path: str | Path,
-        to_path: str | Path,
-    ) -> Repo:
-        repo = Repo.clone_from(
-            repo_path,
-            to_path=to_path,
-        )
-
-        return repo
-
     # Determine clone or path
     if isinstance(repo_path, str) and any(
         repo_path.startswith(remote_repo_prefix)
@@ -397,9 +408,14 @@ def analyze_repository(
     ):
         with TemporaryDirectory() as tmpdir:
             try:
-                repo = _clone_repository_with_timeout(
-                    repo_path=repo_path,
-                    to_path=tmpdir,
+                clone_repo_with_timeout = get_clone_repository_with_timeout_func(
+                    timeout_seconds=clone_timeout_seconds,
+                )
+                repo = clone_repo_with_timeout(
+                    CloneRepositoryParams(
+                        repo_path=repo_path,
+                        to_path=tmpdir,
+                    ),
                 )
             except Exception as e:
                 return TrackedErrorResult(
@@ -440,6 +456,7 @@ def analyze_repository(
                     tb=traceback.format_exc(),
                 )
 
+    # Repo is already local path, analyze directly
     else:
         try:
             metrics = _analyze_repository_with_timeout(
