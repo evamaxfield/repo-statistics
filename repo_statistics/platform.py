@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-from dask.array.routines import isin
 import logging
 import time
 from dataclasses import dataclass
@@ -70,7 +69,8 @@ def _request_platform_metrics_with_backoff(
         open_issues_count=repo_data["open_issues_count"],
         primary_programming_language=(
             repo_data["language"]
-            if isinstance(repo_data["language"], (str, type(None))) else None
+            if isinstance(repo_data["language"], (str, type(None)))
+            else None
         ),
     )
 

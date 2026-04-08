@@ -165,7 +165,7 @@ def compute_sloc_metrics(  # noqa: C901
             ),
         )
 
-    except Exception as e:
+    except Exception:
         return SLOCResults(
             total_lines_of_code=None,
             total_lines_of_comments=None,
