@@ -20,18 +20,18 @@ from .utils import get_commit_hash_for_target_datetime, get_linguist_file_type
 
 @dataclass
 class SLOCResults(DataClassJsonMixin):
-    total_lines_of_code: int
-    total_lines_of_comments: int
-    programming_lines_of_code: int
-    programming_lines_of_comments: int
-    markup_lines_of_code: int
-    markup_lines_of_comments: int
-    prose_lines_of_code: int
-    prose_lines_of_comments: int
-    data_lines_of_code: int
-    data_lines_of_comments: int
-    unknown_lines_of_code: int
-    unknown_lines_of_comments: int
+    total_lines_of_code: int | None
+    total_lines_of_comments: int | None
+    programming_lines_of_code: int | None
+    programming_lines_of_comments: int | None
+    markup_lines_of_code: int | None
+    markup_lines_of_comments: int | None
+    prose_lines_of_code: int | None
+    prose_lines_of_comments: int | None
+    data_lines_of_code: int | None
+    data_lines_of_comments: int | None
+    unknown_lines_of_code: int | None
+    unknown_lines_of_comments: int | None
     total_code_to_comment_ratio: float | None
     programming_code_to_comment_ratio: float | None
     markup_code_to_comment_ratio: float | None
@@ -163,6 +163,28 @@ def compute_sloc_metrics(  # noqa: C901
             unknown_code_to_comment_ratio=_ratio(
                 unknown_lines_of_code, unknown_lines_of_comments
             ),
+        )
+
+    except Exception as e:
+        return SLOCResults(
+            total_lines_of_code=None,
+            total_lines_of_comments=None,
+            programming_lines_of_code=None,
+            programming_lines_of_comments=None,
+            markup_lines_of_code=None,
+            markup_lines_of_comments=None,
+            prose_lines_of_code=None,
+            prose_lines_of_comments=None,
+            data_lines_of_code=None,
+            data_lines_of_comments=None,
+            unknown_lines_of_code=None,
+            unknown_lines_of_comments=None,
+            total_code_to_comment_ratio=None,
+            programming_code_to_comment_ratio=None,
+            markup_code_to_comment_ratio=None,
+            prose_code_to_comment_ratio=None,
+            data_code_to_comment_ratio=None,
+            unknown_code_to_comment_ratio=None,
         )
 
     finally:
