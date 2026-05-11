@@ -45,13 +45,10 @@ dependencies = [
 # extra dependencies
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
-lint = [
-  "ruff>=0.12",
-  "zuban>=0.6.1",
-]
 dev = [
   "ipython",
   "jupyterlab",
+  "prek>=0.3",
   "pytest>=5.4.3",
 ]
 coiled = [
@@ -125,5 +122,5 @@ lint.extend-ignore = [
 "**/tests/*.py" = ["D"]
 "**/migrations/*.py" = ["D"]
 
-[tool.ty.src]
-exclude = [".github", ".pre-commit-config.yaml", "pyproject.toml"]
+[tool.pyrefly]
+project_excludes = ["copied-*.py"]

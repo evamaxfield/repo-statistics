@@ -94,6 +94,7 @@ def _analyze_repository(  # noqa: C901
     compute_static_analysis_metrics: bool = True,
     compute_ai_detection_metrics: bool = False,
     loaded_ai_detection_clf_model: "Pipeline | None" = None,
+    hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
 ) -> dict:
     # Get processed at datetime
@@ -332,6 +333,7 @@ def _analyze_repository(  # noqa: C901
             target_datetime=end_datetime,
             datetime_col=datetime_col,
             loaded_ai_detection_clf_model=loaded_ai_detection_clf_model,
+            hf_token=hf_token,
             install_complexity_if_missing=install_complexity_if_missing,
         )
 
@@ -402,6 +404,9 @@ def analyze_repository(
     compute_churn_metrics: bool = True,
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
+    compute_ai_detection_metrics: bool = False,
+    loaded_ai_detection_clf_model: "Pipeline | None" = None,
+    hf_token: str | None = None,
     clone_timeout_seconds: int = 60,
     analyze_timeout_seconds: int = 600,
     install_complexity_if_missing: bool = True,
@@ -467,6 +472,9 @@ def analyze_repository(
                     compute_churn_metrics=compute_churn_metrics,
                     compute_complexity_metrics=compute_complexity_metrics,
                     compute_static_analysis_metrics=compute_static_analysis_metrics,
+                    compute_ai_detection_metrics=compute_ai_detection_metrics,
+                    loaded_ai_detection_clf_model=loaded_ai_detection_clf_model,
+                    hf_token=hf_token,
                     install_complexity_if_missing=install_complexity_if_missing,
                 )
             except Exception as e:
@@ -501,6 +509,8 @@ def analyze_repository(
                 compute_churn_metrics=compute_churn_metrics,
                 compute_complexity_metrics=compute_complexity_metrics,
                 compute_static_analysis_metrics=compute_static_analysis_metrics,
+                compute_ai_detection_metrics=compute_ai_detection_metrics,
+                loaded_ai_detection_clf_model=loaded_ai_detection_clf_model,
                 install_complexity_if_missing=install_complexity_if_missing,
             )
         except Exception as e:

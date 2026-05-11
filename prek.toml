@@ -1,0 +1,43 @@
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.15.0" # Ruff version.
+hooks = [
+  # Run the linter.
+  { id = "ruff-check", args = ["--fix"], types_or = ["python", "pyi"] },
+
+  # Run the formatter.
+  { id = "ruff-format", types_or = ["python", "pyi"] },
+]
+
+[[repos]]
+repo = "https://github.com/facebook/pyrefly-pre-commit"
+rev = "0.61.0" # Pyrefly pre-commit hook version.
+hooks = [
+  {
+    id = "pyrefly-check",
+    pass_filenames = false,
+    additional_dependencies = [
+      "backoff>=2,<3",
+      "dataclasses-json>=0.6,<1",
+      "gitpython>=3,<4",
+      "gh-tokens-loader>=0.1.2,<1",
+      "ghapi>=1,<2",
+      "numpy>=1,<2",
+      "scipy>=1,<2",
+      "polars>=1,<2",
+      "pygount>=3,<4",
+      "pyyaml>=6,<7",
+      "timeout-function-decorator>=2,<3",
+      "tqdm>=4,<5",
+      "multimetric>=2,<3",
+      "ipython",
+      "jupyterlab",
+      "prek>=0.3",
+      "pytest>=5.4.3",
+      "coiled>=1,<2",
+      "sci-soft-models @ git+ssh://git@github.com/WeberLab-UW/sci-soft-models.git@ai-detection",
+      "transformers>=4,<5",
+      "py-ascii-tree>=0.2,<1",
+      "py-nb-to-src>=0.3",
+    ] },
+]

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -40,29 +41,33 @@ log = logging.getLogger(__name__)
 
 ###############################################################################
 
-_EXCLUDE_DIR_NAMES = frozenset({
-    "tests",
-    "test",
-    "tutorial",
-    "tutorials",
-    "example",
-    "examples",
-    "docs",
-    "doc",
-    "vignettes",
-    "data",
-})
+_EXCLUDE_DIR_NAMES = frozenset(
+    {
+        "tests",
+        "test",
+        "tutorial",
+        "tutorials",
+        "example",
+        "examples",
+        "docs",
+        "doc",
+        "vignettes",
+        "data",
+    }
+)
 
-_EXCLUDE_PACKAGING_FILENAMES = frozenset({
-    "setup.py",
-    "setup.cfg",
-    "conftest.py",
-    "_version.py",
-    "pyproject.toml",
-    "MANIFEST.in",
-    "__init__.py",
-    "__version__.py",
-})
+_EXCLUDE_PACKAGING_FILENAMES = frozenset(
+    {
+        "setup.py",
+        "setup.cfg",
+        "conftest.py",
+        "_version.py",
+        "pyproject.toml",
+        "MANIFEST.in",
+        "__init__.py",
+        "__version__.py",
+    }
+)
 
 _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 
@@ -70,7 +75,7 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 
 
 @dataclass
-class AIDetectionResults(DataClassJsonMixin):  # noqa: D101
+class AIDetectionResults(DataClassJsonMixin):
     ai_detection_unique_files_checked: int
     # p25
     ai_detection_p25_filepath: str | None
@@ -159,8 +164,7 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
         f
         for f in file_list
         if not any(
-            f.parents[i].name.lower() in _EXCLUDE_DIR_NAMES
-            for i in range(len(f.parents))
+            f.parents[i].name.lower() in _EXCLUDE_DIR_NAMES for i in range(len(f.parents))
         )
     ]
 
@@ -170,7 +174,8 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
         f
         for f in file_list
         if not any(
-            f.match(pattern, case_sensitive=False) for pattern in _EXCLUDE_TEST_FILENAME_PATTERNS
+            f.match(pattern, case_sensitive=False)
+            for pattern in _EXCLUDE_TEST_FILENAME_PATTERNS
         )
     ]
 
@@ -244,8 +249,15 @@ def compute_ai_detection_metrics(  # noqa: C901
     target_datetime: str | date | datetime | None = None,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     loaded_ai_detection_clf_model: "Pipeline | None" = None,
+    hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
 ) -> AIDetectionResults:
+    # Resolve HF token: explicit param takes priority over environment variable.
+    # Set in environment so HuggingFace Hub picks it up when loading the model.
+    resolved_token = hf_token or os.environ.get("HF_TOKEN")
+    if resolved_token is not None:
+        os.environ["HF_TOKEN"] = resolved_token
+
     if not _check_and_install_complexity_cli(install_complexity_if_missing):
         return _empty_results()
 
@@ -319,11 +331,12 @@ def compute_ai_detection_metrics(  # noqa: C901
             p50_val = scores_series.quantile(0.50, interpolation="nearest")
             p75_val = scores_series.quantile(0.75, interpolation="nearest")
 
-            def _select_file(target_val: float) -> Path:
-                for path, score in zip(paths_list, scores_series.to_list()):
+            def _select_file(target_val: float | None) -> Path:
+                if target_val is None:
+                    return paths_list[0]
+                for path, score in zip(paths_list, scores_series.to_list(), strict=False):
                     if score == target_val:
                         return path
-                # Fallback: return first file (should never reach here)
                 return paths_list[0]
 
             p25_file = _select_file(p25_val)

@@ -23,13 +23,11 @@ clean:
 # install with all deps
 install:
 	pip install uv
-	uv pip install -e ".[lint,dev,coiled,ai]"
+	uv pip install -e ".[dev,coiled,ai]"
 
 # run linting
 lint:
-	ruff check . --fix
-	ruff format .
-	zuban check
+	prek run --all-files
 
 # test all files
 test:
