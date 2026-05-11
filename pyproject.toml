@@ -57,6 +57,12 @@ dev = [
 coiled = [
   "coiled>=1,<2",
 ]
+ai = [
+  "sci-soft-models @ git+ssh://git@github.com/WeberLab-UW/sci-soft-models.git@ai-detection",
+  "transformers>=4,<5",
+  "py-ascii-tree>=0.2,<1",
+  "py-nb-to-src>=0.3",
+]
 
 [project.urls]
 Homepage = "https://github.com/evamaxfield/repo-statistics"

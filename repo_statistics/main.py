@@ -9,7 +9,10 @@ from datetime import date, datetime
 from itertools import cycle
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from transformers import Pipeline
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
@@ -19,6 +22,7 @@ from timeout_function_decorator import timeout
 from tqdm import tqdm
 
 from . import (
+    ai_detection,
     churn,
     classification,
     commits,
@@ -88,6 +92,8 @@ def _analyze_repository(  # noqa: C901
     compute_churn_metrics: bool = True,
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
+    compute_ai_detection_metrics: bool = False,
+    loaded_ai_detection_clf_model: "Pipeline | None" = None,
     install_complexity_if_missing: bool = False,
 ) -> dict:
     # Get processed at datetime
@@ -316,6 +322,20 @@ def _analyze_repository(  # noqa: C901
         )
 
         all_metrics.update(static_analysis_results.to_dict())
+
+    # Compute AI detection metrics
+    if compute_ai_detection_metrics:
+        log.debug("Computing AI detection metrics")
+        ai_detection_results = ai_detection.compute_ai_detection_metrics(
+            repo_path=repo_path,
+            commits_df=commits_df,
+            target_datetime=end_datetime,
+            datetime_col=datetime_col,
+            loaded_ai_detection_clf_model=loaded_ai_detection_clf_model,
+            install_complexity_if_missing=install_complexity_if_missing,
+        )
+
+        all_metrics.update(ai_detection_results.to_dict())
 
     # Compute platform metrics
     if compute_platform_metrics:

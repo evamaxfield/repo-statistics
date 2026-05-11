@@ -23,7 +23,7 @@ clean:
 # install with all deps
 install:
 	pip install uv
-	uv pip install -e ".[lint,dev,coiled]"
+	uv pip install -e ".[lint,dev,coiled,ai]"
 
 # run linting
 lint:
