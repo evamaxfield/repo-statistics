@@ -252,6 +252,8 @@ def compute_ai_detection_metrics(  # noqa: C901
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
 ) -> AIDetectionResults:
+    print("Within compute_ai_detection_metrics...")  # Debug print to confirm function is being called
+
     # Resolve HF token: explicit param takes priority over environment variable.
     # Set in environment so HuggingFace Hub picks it up when loading the model.
     resolved_token = hf_token or os.environ.get("HF_TOKEN")
@@ -259,18 +261,20 @@ def compute_ai_detection_metrics(  # noqa: C901
         os.environ["HF_TOKEN"] = resolved_token
 
     if not _check_and_install_complexity_cli(install_complexity_if_missing):
+        print("complexity CLI is not available and could not be installed. Skipping AI detection metrics.")  # Debug print
         return _empty_results()
 
     if isinstance(repo_path, Repo):
         repo = repo_path
     else:
         repo = Repo(repo_path)
-
+    
     target_hex = get_commit_hash_for_target_datetime(
         commits_df=commits_df,
         target_datetime=target_datetime,
         datetime_col=datetime_col,
     )
+    print(f"Target commit hash for AI detection: {target_hex}")  # Debug print
 
     try:
         original_ref = repo.active_branch.name
@@ -284,12 +288,15 @@ def compute_ai_detection_metrics(  # noqa: C901
         with TemporaryDirectory() as tmpdir:
             temp_dir = Path(tmpdir) / "repo"
             shutil.copytree(repo_dir, temp_dir, ignore=shutil.ignore_patterns(".git"))
+            print("Repository copied to temporary directory for AI detection.")  # Debug print
 
             convert_directory(temp_dir, recursive=True, show_progress=False)
+            print("Jupyter notebooks converted to Python files for AI detection.")  # Debug print
 
             core_files = _get_core_python_file_set(temp_dir)
             if not core_files:
                 return _empty_results()
+            print(f"Found {len(core_files)} core Python files to analyze for AI detection.")  # Debug print
 
             core_files_set = set(core_files)
 
@@ -301,7 +308,7 @@ def compute_ai_detection_metrics(  # noqa: C901
             )
 
             if result.returncode != 0:
-                log.warning(
+                print(
                     f"complexity CLI failed with return code {result.returncode}. "
                     f"stderr: {result.stderr.strip()}"
                 )
@@ -310,8 +317,10 @@ def compute_ai_detection_metrics(  # noqa: C901
             try:
                 complexity_data: dict[str, float] = json.loads(result.stdout)
             except json.JSONDecodeError:
-                log.warning("complexity CLI returned invalid JSON for AI detection.")
+                print("complexity CLI returned invalid JSON for AI detection.")
                 return _empty_results()
+            
+            print(f"complexity CLI returned complexity scores for {len(complexity_data)} files.")  # Debug print
 
             # Normalize paths from "./relative/path.py" to absolute, filter to core set
             filtered_scores: dict[Path, float] = {}
@@ -344,9 +353,10 @@ def compute_ai_detection_metrics(  # noqa: C901
             p75_file = _select_file(p75_val)
 
             unique_files_checked = len({p25_file, p50_file, p75_file})
+            print(f"Selected files for AI detection: {p25_file}, {p50_file}, {p75_file}")  # Debug print
 
             if loaded_ai_detection_clf_model is None:
-                log.info(
+                print(
                     "No pre-loaded AI detection model provided; loading now (may be slow)..."
                 )
                 clf = load_ai_detection_clf_model()
@@ -359,12 +369,13 @@ def compute_ai_detection_metrics(  # noqa: C901
                 try:
                     _cache[f] = detect_ai_in_python_file(f, clf)
                 except Exception as e:
-                    log.warning(f"detect_ai_in_python_file failed for {f}: {e}")
+                    print(f"detect_ai_in_python_file failed for {f}: {e}")
                     _cache[f] = []
 
             p25_stats = _compute_file_stats(p25_file, _cache[p25_file], temp_dir)
             p50_stats = _compute_file_stats(p50_file, _cache[p50_file], temp_dir)
             p75_stats = _compute_file_stats(p75_file, _cache[p75_file], temp_dir)
+            print("Computed AI detection statistics for selected files.")  # Debug print
 
             return AIDetectionResults(
                 ai_detection_unique_files_checked=unique_files_checked,
@@ -404,7 +415,11 @@ def compute_ai_detection_metrics(  # noqa: C901
             )
 
     except Exception as e:
-        log.warning(f"AI detection metrics failed: {e}")
+        print(f"Error during AI detection metrics computation: {e}")
+        # Also print the traceback
+        import traceback
+        print(traceback.format_exc())
+
         return _empty_results()
 
     finally:

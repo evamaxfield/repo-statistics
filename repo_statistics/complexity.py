@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -82,13 +83,16 @@ def _install_and_setup_complexity_cli() -> bool:
         )
         return False
 
+    install_dir = Path.home() / ".local" / "bin"
+    install_dir.mkdir(parents=True, exist_ok=True)
+
     extract_result = subprocess.run(
         [
             "tar",
             "-xzf",
             "complexity.tar.gz",
             "-C",
-            "/usr/local/bin",
+            str(install_dir),
             "--strip-components=1",
         ],
         capture_output=True,
@@ -102,6 +106,9 @@ def _install_and_setup_complexity_cli() -> bool:
             "Please install complexity manually. Returning empty results."
         )
         return False
+
+    if str(install_dir) not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = str(install_dir) + ":" + os.environ.get("PATH", "")
 
     # Clean up the downloaded tar.gz
     Path("complexity.tar.gz").unlink()
