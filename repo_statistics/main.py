@@ -178,8 +178,6 @@ def _analyze_repository(  # noqa: C901
     ai_commit_author_results = ai_detection.compute_ai_commit_author_metrics(
         repo_path=repo_path,
         commits_df=pre_bot_filter_commits_df,
-        target_datetime=end_datetime,
-        datetime_col=datetime_col,
     )
     all_metrics.update(ai_commit_author_results.to_dict())
 
@@ -246,7 +244,6 @@ def _analyze_repository(  # noqa: C901
                 per_file_commit_deltas_df=per_file_commit_deltas_df,
                 period_span=period_span,
                 start_datetime=start_datetime_dt,
-                end_datetime=end_datetime_dt,
                 datetime_col=datetime_col,
             )
 

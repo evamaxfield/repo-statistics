@@ -63,7 +63,6 @@ def compute_code_churn(
     per_file_commit_deltas_df: pl.DataFrame,
     period_span: str | float | timedelta,
     start_datetime: datetime,
-    end_datetime: datetime,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> CodeChurnResults:
     td = parse_timedelta(period_span)

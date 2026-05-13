@@ -24,6 +24,33 @@ See [full table for additional information](/metrics.md)
 
 
 
+## Datetime Scoping
+
+When `start_datetime` and `end_datetime` are provided to `analyze_repository`, both the commit summary DataFrame and the per-file delta DataFrame are filtered to that range **before** any metric is computed. This means all metrics implicitly reflect the specified window. How individual metrics use datetimes then falls into three groups:
+
+**Implicitly range-scoped (no extra datetime logic)**
+These metrics receive the pre-filtered DataFrames and operate on all rows within the window:
+- Commit counts, contributor counts, contributor absence factor, contributor distribution, contributor change metrics, important change dates
+
+**Explicitly range-scoped (period bucketing)**
+These metrics also receive `start_datetime` and `end_datetime` to define period bucket boundaries within the window:
+- `compute_timeseries_metrics` — iterates from `start_datetime` to `end_datetime` in `period_span` increments, filtering commits into each bucket
+- `compute_contributor_stability_metrics` — uses `(end_datetime - start_datetime).days` as the project duration divisor for normalizing contribution spans
+- `compute_code_churn` — uses `start_datetime` as the epoch anchor for computing period indices (commits are bucketed by elapsed time since `start_datetime`)
+
+**Point-in-time snapshot (git checkout)**
+These metrics use `end_datetime` as a `target_datetime` to find the latest commit at or before that moment, then `git checkout` to that state before measuring the repository:
+- Documentation checks (`process_with_repo_linter`)
+- Source lines of code (`compute_sloc_metrics`)
+- Tag metrics (`compute_tag_metrics`)
+- Complexity metrics (`compute_complexity_metrics`)
+- Static analysis (`compute_static_analysis_metrics`)
+- AI file detection (`compute_ai_detection_metrics`, `compute_ai_agent_config_metrics`)
+
+**No datetime involvement**
+- Platform metrics (`stars_count`, `forks_count`, etc.) — live GitHub API call, always reflects current state
+- Repository classification — pure heuristic on contributor/star counts
+
 ## Usage
 
 ### Single Repository Processing

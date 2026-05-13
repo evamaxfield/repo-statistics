@@ -16,7 +16,7 @@ from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
 from .complexity import _check_and_install_complexity_cli
-from .utils import get_commit_hash_for_target_datetime, parse_datetime
+from .utils import get_commit_hash_for_target_datetime
 
 if TYPE_CHECKING:
     from transformers import Pipeline
@@ -576,17 +576,11 @@ def _get_coauthor_counts_and_hashes(
 def compute_ai_commit_author_metrics(
     repo_path: str | Path | Repo,
     commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> AICommitAuthorResults:
     if isinstance(repo_path, Repo):
         repo = repo_path
     else:
         repo = Repo(repo_path)
-
-    if target_datetime is not None:
-        target_datetime_dt = parse_datetime(target_datetime)
-        commits_df = commits_df.filter(pl.col(datetime_col) <= target_datetime_dt)
 
     # Part A: direct author/committer identity (DataFrame scan)
     author_counts: dict[str, int] = {}
