@@ -2,200 +2,265 @@
 
 ## Metric Family Summary
 
-| Metric Family | Metrics | Description |
+Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`, `markup`, `prose`, `data`, `unknown`) and/or by **period span** (`{period}` = e.g., `1_week`, `4_weeks`).
+
+| Metric Family | Representative Metrics | Description |
 |--------------|---------|-------------|
-| [Development Activity Pattern Metrics](#1-development-activity-pattern-metrics) | `commit_entropy`, `commit_variation`, `commit_frac`, `lines_changed_entropy`, `lines_changed_variation` | Metrics measuring regularity and consistency of development effort over time, calculated at both weekly and monthly intervals to identify sustained engagement patterns versus bursty development |
-| [Development Episode Characteristics](#2-development-episode-characteristics) | `median_commit_span`, `mean_commit_span`, `std_commit_span`, `median_no_commit_span`, `mean_no_commit_span`, `std_no_commit_span` | Metrics describing the temporal structure of active and inactive development periods, characterizing sustained work episodes and dormancy gaps |
-| [Contributor Engagement Patterns](#3-contributor-engagement-patterns) | `stable_contributors_count`, `transient_contributors_count`, `median_contribution_span_days`, `mean_contribution_span_days`, `normalized_median_span`, `normalized_mean_span` | Metrics characterizing contributor stability and engagement duration, distinguishing between sustained community members and episodic contributors |
-| [Contributor Distribution Metrics](#4-contributor-distribution-metrics) | `unique_contributors_count`, `contributor_absence_factor_code`, `contributor_absence_factor_all`, `contributor_specialization`, `specialists_contributor_count`, `generalists_contributor_count`, `contributor_change_count`, `contributor_same_count` | Metrics examining how development effort and knowledge are distributed among contributors, including bus factor analysis and specialist/generalist patterns |
-| [Repository Timeline Metrics](#5-repository-timeline-metrics) | `initial_commit_datetime`, `most_recent_commit_datetime`, `most_recent_substantial_commit_datetime`, `to_most_recent_commit_duration_days`, `to_most_recent_substantial_commit_duration_days` | Basic temporal metadata for development history analysis, tracking project age, activity status, and lifetime of meaningful development |
-| [Development Activity Volume](#6-development-activity-volume) | `commits_count`, `non_bot_commits_count`, `coding_commits_count`, `source_lines_of_code`, `source_lines_of_comments` | Metrics quantifying overall development activity and effort, distinguishing between human and automated contributions and measuring codebase size |
-| [Community Engagement Metrics](#7-community-engagement-metrics) | `stars_count`, `forks_count`, `watchers_count`, `open_issues_count` | Metrics reflecting community interest and participation through GitHub features, indicating broader impact and active engagement |
+| [Development Activity Pattern Metrics](#1-development-activity-pattern-metrics) | `{period}_{filetype}_changed_binary_entropy`, `{period}_{filetype}_changed_binary_variation`, `{period}_{filetype}_changed_binary_frac`, `{period}_{filetype}_changed_binary_gini`, `{period}_{filetype}_lines_changed_count_entropy`, `{period}_{filetype}_lines_changed_count_variation`, `{period}_{filetype}_lines_changed_count_gini` | Metrics measuring regularity and consistency of development effort over time, calculated per period span and file type to identify sustained engagement patterns versus bursty development |
+| [Development Episode Characteristics](#2-development-episode-characteristics) | `{period}_{filetype}_did_change_median_span`, `{period}_{filetype}_did_change_mean_span`, `{period}_{filetype}_did_change_std_span`, `{period}_{filetype}_did_not_change_median_span`, `{period}_{filetype}_did_not_change_mean_span`, `{period}_{filetype}_did_not_change_std_span` | Metrics describing the temporal structure of active and inactive development periods, characterizing sustained work episodes and dormancy gaps |
+| [Contributor Engagement Patterns](#3-contributor-engagement-patterns) | `{period}_stable_contributors_count`, `{period}_transient_contributors_count`, `{period}_median_contribution_span_days`, `{period}_mean_contribution_span_days`, `{period}_normalized_median_contribution_span`, `{period}_normalized_mean_contribution_span` | Metrics characterizing contributor stability and engagement duration, distinguishing between sustained community members and episodic contributors |
+| [Contributor Distribution Metrics](#4-contributor-distribution-metrics) | `{filetype}_contributor_count`, `{filetype}_contributor_absence_factor`, `{filetype}_contributors_per_file_entropy`, `{filetype}_contributors_per_file_gini`, `{filetype}_files_per_contributor_entropy`, `{filetype}_files_per_contributor_gini`, `{filetype}_simple_threshold_specialist_count`, `{filetype}_simple_threshold_generalist_count`, `diff_contributor_count`, `same_contributor_count` | Metrics examining how development effort and knowledge are distributed among contributors, including bus factor analysis and specialist/generalist patterns |
+| [Repository Timeline Metrics](#5-repository-timeline-metrics) | `{filetype}_initial_change_datetime`, `{filetype}_most_recent_change_datetime`, `{filetype}_most_recent_substantial_change_datetime`, `{filetype}_change_duration_days`, `{filetype}_change_duration_to_most_recent_substantial_days`, `{filetype}_change_duration_from_substantial_to_most_recent_days` | Basic temporal metadata for development history analysis, tracking project age, activity status, and lifetime of meaningful development |
+| [Development Activity Volume](#6-development-activity-volume) | `{filetype}_commit_count`, `bot_changes_count`, `{filetype}_lines_of_code`, `{filetype}_lines_of_comments`, `{filetype}_code_to_comment_ratio` | Metrics quantifying overall development activity and effort, distinguishing between human and automated contributions and measuring codebase size |
+| [Community Engagement Metrics](#7-community-engagement-metrics) | `stargazers_count`, `forks_count`, `watchers_count`, `open_issues_count`, `primary_programming_language` | Metrics reflecting community interest and participation through GitHub features, indicating broader impact and active engagement |
 | [Release Management Metrics](#8-release-management-metrics) | `semver_tags_count`, `non_semver_tags_count`, `total_tags_count` | Metrics related to versioning and release practices, measuring adoption of formal release management conventions |
-| [Repository Classification Metadata](#9-repository-classification-metadata) | `repo_primary_language`, `repo_classification`, `file_extensions_set` | Descriptive metadata for filtering and comparative analysis, characterizing project type and technical composition |
-| [Documentation and Best Practices](#10-documentation-and-best-practices) | `repo_linter_license_file_exists`, `repo_linter_readme_file_exists`, `repo_linter_readme_references_license`, `repo_linter_changelog_file_exists`, `repo_linter_contributing_file_exists`, `repo_linter_code_of_conduct_file_exists`, `repo_linter_code_of_conduct_file_contains_email`, `repo_linter_security_file_exists`, `repo_linter_support_file_exists`, `repo_linter_test_directory_exists`, `repo_linter_integrates_with_ci`, `repo_linter_github_issue_template_exists`, `repo_linter_github_pull_request_template_exists`, `repo_linter_binaries_not_present` | Binary indicators of documentation files and development practices supporting sustainability, including core documentation, community guidelines, and development infrastructure |
-| [Gini Coefficients (experimental)](#11-gini-coefficients-experimental) | `commit_gini_coefficient`, `lines_changed_gini_coefficient`, `contributor_commit_gini`, `contributor_lines_gini`, `commit_size_gini`, `time_between_commits_gini` | Alternative inequality measures using Gini coefficients to complement existing sustainability indicators, measuring distribution equality across temporal and contributor dimensions |
-| [Commit Pattern Metrics](#12-commit-pattern-metrics) | `commit_size_entropy`, `commit_size_variation`, `time_between_commits_entropy`, `time_between_commits_variation` | Metrics analyzing commit sizing and timing patterns using entropy and variation measures to characterize development rhythm and consistency |
-| [Advanced Sustainability Indicators](#13-advanced-sustainability-indicators) | `documentation_to_code_ratio`, `contributor_retention_rate`, `releases_per_year`, `knowledge_concentration_risk`, `simple_code_churn_rate` | Higher-level metrics for comprehensive sustainability assessment combining multiple dimensions including documentation quality, contributor retention, release cadence, knowledge distribution, and code volatility |
+| [Repository Classification Metadata](#9-repository-classification-metadata) | `project_type_heuristic_classification` | Descriptive metadata for filtering and comparative analysis, characterizing project type |
+| [Documentation and Best Practices](#10-documentation-and-best-practices) | `documentation_checks_passed_count`, `license_file_exists`, `readme_file_exists`, `readme_references_license`, `changelog_file_exists`, `contributing_file_exists`, `code_of_conduct_file_exists`, `code_of_conduct_file_contains_email`, `security_file_exists`, `support_file_exists`, `test_directory_exists`, `integrates_with_ci`, `github_issue_template_exists`, `github_pull_request_template_exists`, `binaries_not_present` | Binary indicators of documentation files and development practices supporting sustainability, including core documentation, community guidelines, and development infrastructure |
+| [Code Churn Metrics](#11-code-churn-metrics) | `{period}_{filetype}_churn_lines`, `{period}_{filetype}_churn_normalized` | Metrics quantifying code volatility by measuring files with multiple changes within a period, computed per period span and file type |
+| [Code Complexity Metrics](#12-code-complexity-metrics) | `complexity_mean`, `complexity_median`, `complexity_max`, `complexity_sum`, `complexity_file_count` | Cyclomatic complexity of Python source files at the analysis end datetime |
+| [Static Analysis Metrics](#13-static-analysis-metrics) | `halstead_volume_mean`, `halstead_difficulty_mean`, `halstead_effort_mean`, `halstead_timerequired_mean`, `halstead_bugprop_mean`, `maintainability_index_mean`, `operators_sum_mean`, `operands_sum_mean`, `static_analysis_file_count` | Halstead software science metrics and maintainability index computed across Python source files at the analysis end datetime |
+| [AI Commit Author Metrics](#14-ai-commit-author-metrics) | `ai_commit_author_{agent}_commit_count`, `ai_commit_coauthored_{agent}_commit_count`, `ai_commit_total_ai_associated_count`, `ai_commit_ai_associated_proportion`, `ai_commit_any_detected` | Metrics detecting AI agent involvement in commits via author identity and co-authored-by trailers, across agents: devin, sweep, copilot, codeium, claude, cursor |
+| [AI Agent Configuration Metrics](#15-ai-agent-configuration-metrics) | `ai_agent_config_claude_md_exists`, `ai_agent_config_cursor_rules_exists`, `ai_agent_config_copilot_instructions_exists`, `ai_agent_config_aider_exists`, `ai_agent_config_cline_rules_exists`, `ai_agent_config_windsurf_rules_exists`, `ai_agent_config_agents_md_exists`, `ai_agent_config_any_exists` | Binary indicators of AI coding agent configuration files present in the repository at the analysis end datetime |
+| [AI Code Detection Metrics](#16-ai-code-detection-metrics) | `ai_detection_unique_files_checked`, `ai_detection_p25_ai_function_proportion`, `ai_detection_p50_ai_function_proportion`, `ai_detection_p75_ai_function_proportion`, `ai_detection_{percentile}_ai_confidence_mean`, `ai_detection_{percentile}_human_confidence_mean` | Per-function AI authorship classification scores at three complexity percentile thresholds (p25/p50/p75), measured at the analysis end datetime |
 
 ---
 
 ## 1. Development Activity Pattern Metrics
 
-Metrics measuring regularity and consistency of development effort over time. All metrics are calculated at both weekly and monthly intervals.
+Metrics measuring regularity and consistency of development effort over time. All metrics are computed per period span (e.g., `1_week`, `4_weeks`) and per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`), producing keys like `1_week_total_changed_binary_entropy`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `commit_entropy` | Entropy of commit presence probabilities across time periods | Regular patterns indicate sustained engagement; bursty patterns may align with academic calendars | Higher = more predictable | CHAOSS Burstiness; EPJ Data Science; [17], [18], [19], [20] |
-| `commit_variation` | Coefficient of variation (σ/μ) of commit presence | Lower variation suggests consistent development effort | Lower = more consistent | Similar to CHAOSS Burstiness; [17], [18], [19] |
-| `commit_frac` | Fraction of time periods containing ≥1 commit | Indicates sustained development throughout project lifecycle | Higher = more active periods | Adapted from MSR 2024 "consistency" |
-| `lines_changed_entropy` | Entropy of lines changed per time period | Regular code changes suggest ongoing maintenance | Higher = more regular intensity | Extension of commit entropy; [17], [18] |
-| `lines_changed_variation` | Coefficient of variation of lines changed | Predictable development intensity patterns | Lower = more consistent | Extension of commit variation |
+| `{period}_{filetype}_changed_binary_entropy` | Entropy of commit presence (binary) across time periods | Regular patterns indicate sustained engagement; bursty patterns may align with academic calendars | Higher = more predictable | CHAOSS Burstiness; EPJ Data Science; [17], [18], [19], [20] |
+| `{period}_{filetype}_changed_binary_variation` | Coefficient of variation (σ/μ) of commit presence | Lower variation suggests consistent development effort | Lower = more consistent | Similar to CHAOSS Burstiness; [17], [18], [19] |
+| `{period}_{filetype}_changed_binary_frac` | Fraction of time periods containing ≥1 commit | Indicates sustained development throughout project lifecycle | Higher = more active periods | Adapted from MSR 2024 "consistency" |
+| `{period}_{filetype}_changed_binary_gini` | Gini coefficient of commit presence across time periods | Inequality of development activity distribution (0=equal, 1=max inequality) | Lower = more equal | [51], [52] |
+| `{period}_{filetype}_lines_changed_count_entropy` | Entropy of lines changed per time period | Regular code changes suggest ongoing maintenance | Higher = more regular intensity | Extension of commit entropy; [17], [18] |
+| `{period}_{filetype}_lines_changed_count_variation` | Coefficient of variation of lines changed | Predictable development intensity patterns | Lower = more consistent | Extension of commit variation |
+| `{period}_{filetype}_lines_changed_count_gini` | Gini coefficient of lines changed across time periods | Inequality of development intensity distribution | Lower = more equal | [51], [52] |
 
 ## 2. Development Episode Characteristics
 
-Metrics describing the temporal structure of active and inactive development periods.
+Metrics describing the temporal structure of active and inactive development periods. All metrics are computed per period span and per file type, producing keys like `1_week_total_did_change_median_span`.
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
-| `median_commit_span` | Median consecutive time periods with commits | Longer spans indicate sustained development episodes | Higher = longer work periods |
-| `mean_commit_span` | Mean consecutive time periods with commits | Typical sustained development duration | Higher = longer work periods |
-| `std_commit_span` | Standard deviation of commit span lengths | Variability in sustained development patterns | Context-dependent |
-| `median_no_commit_span` | Median consecutive time periods without commits | Shorter gaps indicate continuous engagement | Lower = shorter gaps |
-| `mean_no_commit_span` | Mean consecutive time periods without commits | Typical dormancy between development activities | Lower = shorter gaps |
-| `std_no_commit_span` | Standard deviation of no-commit span lengths | Variability in dormancy patterns | Context-dependent |
+| `{period}_{filetype}_did_change_median_span` | Median consecutive time periods with commits | Longer spans indicate sustained development episodes | Higher = longer work periods |
+| `{period}_{filetype}_did_change_mean_span` | Mean consecutive time periods with commits | Typical sustained development duration | Higher = longer work periods |
+| `{period}_{filetype}_did_change_std_span` | Standard deviation of commit span lengths | Variability in sustained development patterns | Context-dependent |
+| `{period}_{filetype}_did_not_change_median_span` | Median consecutive time periods without commits | Shorter gaps indicate continuous engagement | Lower = shorter gaps |
+| `{period}_{filetype}_did_not_change_mean_span` | Mean consecutive time periods without commits | Typical dormancy between development activities | Lower = shorter gaps |
+| `{period}_{filetype}_did_not_change_std_span` | Standard deviation of no-commit span lengths | Variability in dormancy patterns | Context-dependent |
 
 ## 3. Contributor Engagement Patterns
 
-Metrics characterizing contributor stability and engagement duration.
+Metrics characterizing contributor stability and engagement duration. All metrics are computed per period span (e.g., `1_week`, `4_weeks`), producing keys like `1_week_stable_contributors_count`. The period span defines the threshold for classifying a contributor as stable vs. transient.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `stable_contributors_count` | Contributors active across multiple time periods | Sustained community engagement and knowledge retention | Higher = more retention | CHAOSS Occasional Contributors (inverse); [1], [2], [3], [4] |
-| `transient_contributors_count` | Contributors active within single time period only | May indicate good onboarding or poor retention depending on stable contributor presence | Context-dependent | CHAOSS Occasional Contributors; [1], [2], [3] |
-| `median_contribution_span_days` | Median individual contributor engagement duration | Better contributor retention | Higher = longer engagement | [5], [6], [7] |
-| `mean_contribution_span_days` | Mean individual contributor engagement duration | Typical contributor involvement | Higher = longer engagement | [5], [6], [7] |
-| `normalized_median_span` | Median contribution span / total project duration | Accounts for project age in assessing engagement | Higher = longer relative engagement | [5], [6] |
-| `normalized_mean_span` | Mean contribution span / total project duration | Project-adjusted engagement duration | Higher = longer relative engagement | [5], [6] |
+| `{period}_stable_contributors_count` | Contributors whose activity spans ≥1 period span | Sustained community engagement and knowledge retention | Higher = more retention | CHAOSS Occasional Contributors (inverse); [1], [2], [3], [4] |
+| `{period}_transient_contributors_count` | Contributors whose activity spans <1 period span | May indicate good onboarding or poor retention depending on stable contributor presence | Context-dependent | CHAOSS Occasional Contributors; [1], [2], [3] |
+| `{period}_median_contribution_span_days` | Median individual contributor engagement duration in days | Better contributor retention | Higher = longer engagement | [5], [6], [7] |
+| `{period}_mean_contribution_span_days` | Mean individual contributor engagement duration in days | Typical contributor involvement | Higher = longer engagement | [5], [6], [7] |
+| `{period}_normalized_median_contribution_span` | Median contribution span / total analysis window duration | Accounts for project age in assessing engagement | Higher = longer relative engagement | [5], [6] |
+| `{period}_normalized_mean_contribution_span` | Mean contribution span / total analysis window duration | Project-adjusted engagement duration | Higher = longer relative engagement | [5], [6] |
 
 ## 4. Contributor Distribution Metrics
 
-Metrics examining how development effort and knowledge are distributed among contributors.
+Metrics examining how development effort and knowledge are distributed among contributors. Most metrics are scoped per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`). Generalist/specialist counts are computed at three thresholds: `simple` (fixed 3-file cutoff), `median`, and `twenty_fifth_percentile`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `unique_contributors_count` | Total distinct contributors | Broader engagement reduces bus factor | Higher = more contributors | [4] and numerous MSR studies |
-| `contributor_absence_factor_code` | Contributors needed for 50% of code changes (bus factor) | Concentration risk for code development | Higher = less risk | [8], [9], [10], [11] |
-| `contributor_absence_factor_all` | Contributors needed for 50% of all changes | Overall concentration risk including documentation | Higher = less risk | [8], [9], [10], [11] |
-| `contributor_specialization` | Entropy of contributor-file overlap patterns | Balance between expertise and knowledge silos | Context-dependent | [12], [13], [14] |
-| `specialists_contributor_count` | Contributors touching ≤3 files | Deep expertise in specific areas | Context-dependent | [12], [13], [14] |
-| `generalists_contributor_count` | Contributors touching >3 files | Broader coverage reduces specialization risks | Higher = more coverage | [12], [13] |
-| `contributor_change_count` | Contributors changed between first/last 20% of commits | Turnover may indicate challenges or natural evolution | Context-dependent | [15], [16], [17], [18] |
-| `contributor_same_count` | Contributors present in first and last 20% of commits | Sustained engagement and knowledge retention | Higher = more continuity | [15], [16] |
+| `{filetype}_contributor_count` | Total distinct contributors touching this file type | Broader engagement reduces bus factor | Higher = more contributors | [4] and numerous MSR studies |
+| `{filetype}_contributor_absence_factor` | Contributors needed for 50% of changes to this file type (bus factor) | Concentration risk | Higher = less risk | [8], [9], [10], [11] |
+| `{filetype}_contributors_per_file_entropy` | Entropy of contributor count distribution across files | Balance between deep expertise and knowledge coverage | Higher = more even distribution | [12], [13], [14] |
+| `{filetype}_contributors_per_file_gini` | Gini coefficient of contributor count distribution across files | Inequality in how contributors are spread across files | Lower = more equal | [51], [52], [53] |
+| `{filetype}_files_per_contributor_entropy` | Entropy of file count distribution across contributors | Generalism vs. specialism balance | Higher = more even distribution | [12], [13], [14] |
+| `{filetype}_files_per_contributor_gini` | Gini coefficient of file count distribution across contributors | Inequality in how much of the codebase each contributor touches | Lower = more equal | [51], [52] |
+| `{filetype}_simple_threshold_specialist_count` | Contributors touching ≤3 files of this type | Deep expertise in specific areas | Context-dependent | [12], [13], [14] |
+| `{filetype}_simple_threshold_generalist_count` | Contributors touching >3 files of this type | Broader coverage reduces specialization risks | Higher = more coverage | [12], [13] |
+| `{filetype}_median_threshold_specialist_count` | Contributors below median files-touched threshold | Relative specialist count | Context-dependent | [12], [13], [14] |
+| `{filetype}_median_threshold_generalist_count` | Contributors above median files-touched threshold | Relative generalist count | Context-dependent | [12], [13] |
+| `{filetype}_twenty_fifth_percentile_threshold_specialist_count` | Contributors below 25th percentile files-touched threshold | Narrow specialist count | Context-dependent | [12], [13], [14] |
+| `{filetype}_twenty_fifth_percentile_threshold_generalist_count` | Contributors above 25th percentile files-touched threshold | Broad generalist count | Context-dependent | [12], [13] |
+| `diff_contributor_count` | Contributors in the first 20% of commits but not the last 20% | Turnover may indicate challenges or natural evolution | Context-dependent | [15], [16], [17], [18] |
+| `same_contributor_count` | Contributors present in both the first and last 20% of commits | Sustained engagement and knowledge retention | Higher = more continuity | [15], [16] |
 
 ## 5. Repository Timeline Metrics
 
-Basic temporal metadata for development history analysis.
+Basic temporal metadata for development history analysis. All metrics are scoped per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`), producing keys like `total_initial_change_datetime`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `initial_commit_datetime` | First commit timestamp | Project age calculation; temporal studies | Metadata | [19], [20], [21] |
-| `most_recent_commit_datetime` | Latest commit timestamp | Activity status determination | Metadata | [19], [20], [21] |
-| `most_recent_substantial_commit_datetime` | Latest commit >10th percentile lines changed | Recent substantial development (excludes trivial changes) | Context-dependent | [22], [23] |
-| `to_most_recent_commit_duration_days` | Days from first to latest commit | Sustained development over time | Higher = longer active | [19], [20], [21] |
-| `to_most_recent_substantial_commit_duration_days` | Days from first to latest substantial commit | Sustained meaningful development | Higher = longer active | [22], [23] |
+| `{filetype}_initial_change_datetime` | First commit timestamp for this file type | Project age calculation; temporal studies | Metadata | [19], [20], [21] |
+| `{filetype}_most_recent_change_datetime` | Latest commit timestamp for this file type | Activity status determination | Metadata | [19], [20], [21] |
+| `{filetype}_most_recent_substantial_change_datetime` | Latest commit >10th percentile lines changed for this file type | Recent substantial development (excludes trivial changes) | Context-dependent | [22], [23] |
+| `{filetype}_change_duration_days` | Days from first to latest commit for this file type | Sustained development over time | Higher = longer active | [19], [20], [21] |
+| `{filetype}_change_duration_to_most_recent_substantial_days` | Days from first to latest substantial commit for this file type | Sustained meaningful development | Higher = longer active | [22], [23] |
+| `{filetype}_change_duration_from_substantial_to_most_recent_days` | Days from last substantial commit to last commit | Gap between meaningful work and minor activity | Lower = more recent meaningful work | [22], [23] |
 
 ## 6. Development Activity Volume
 
-Metrics quantifying overall development activity and effort.
+Metrics quantifying overall development activity and effort. Commit counts are scoped per file type; SLOC metrics include per-file-type breakdowns.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `commits_count` | Total commits | Activity indicator; quality matters more than quantity | Context-dependent | [24], [26] |
-| `non_bot_commits_count` | Commits excluding automated/bot activity | Human development effort | Context-dependent | [25], [26] |
-| `coding_commits_count` | Commits modifying code files | Active feature development vs. documentation | Context-dependent | [24] |
-| `source_lines_of_code` | Total source code lines | Size indicator for sustainability needs | Context-dependent | [27], [28] |
-| `source_lines_of_comments` | Total comment lines | Better maintainability and documentation | Higher = more documented | [27], [28] |
+| `{filetype}_commit_count` | Commits touching at least one file of this type | Activity indicator; quality matters more than quantity | Context-dependent | [24], [26] |
+| `bot_changes_count` | Commits excluded as automated/bot activity | Proportion of non-human development effort | Context-dependent | [25], [26] |
+| `{filetype}_lines_of_code` | Source lines of code for this file type at analysis end datetime | Size indicator for sustainability needs | Context-dependent | [27], [28] |
+| `{filetype}_lines_of_comments` | Comment lines for this file type at analysis end datetime | Maintainability and documentation | Higher = more documented | [27], [28] |
+| `{filetype}_code_to_comment_ratio` | Code lines / comment lines for this file type | Code documentation density | Higher = more comments per line of code | [27], [28] |
 
 ## 7. Community Engagement Metrics
 
-Metrics reflecting community interest and participation through GitHub features.
+Metrics reflecting community interest and participation through GitHub features. These are live API values at time of analysis, not scoped to the analysis datetime window.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `stars_count` | GitHub stars | Community interest and broader impact | Higher = more interest | [29], [30], [31] |
+| `stargazers_count` | GitHub stars | Community interest and broader impact | Higher = more interest | [29], [30], [31] |
 | `forks_count` | Repository forks | Community engagement and distributed development potential | Higher = more engagement | [32], [33] |
 | `watchers_count` | Active watchers | Community monitoring project | Higher = more active interest | [34], [35] |
 | `open_issues_count` | Current open issues | Active engagement or maintenance challenges | Context-dependent | [36] |
+| `primary_programming_language` | Primary programming language as reported by GitHub | Affects community size, tooling, long-term support | Metadata | |
 
 ## 8. Release Management Metrics
 
-Metrics related to versioning and release practices.
+Metrics related to versioning and release practices. Measured at the analysis end datetime.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `semver_tags_count` | Semantic version tags | Formal release management practices | Higher = better management | [37], [38], [39] |
+| `semver_tags_count` | Semantic version tags (e.g., v1.2.3) | Formal release management practices | Higher = better management | [37], [38], [39] |
 | `non_semver_tags_count` | Non-semantic version tags (e.g., CalVer) | Alternative versioning schemes | Context-dependent | [38] |
 | `total_tags_count` | All version tags | Some versioning better than none | Higher = better control | [37], [38], [39] |
 
 ## 9. Repository Classification Metadata
 
-Descriptive metadata for filtering and comparative analysis.
+Heuristic classification of project type based on contributor count and star count (adapted from Eghbal's "Working in Public").
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
-| `repo_primary_language` | Primary programming language | Affects community size, tooling, long-term support | Metadata |
-| `repo_classification` | Project type (single-experiment, lab-tool, specialized-instrument, field-tool) | Different types have different sustainability patterns (adapted from Eghbal's "Working in Public") | Type-specific |
-| `file_extensions_set` | File extensions present | Diversity indicates complexity; homogeneity indicates focus | Context-dependent |
+| `project_type_heuristic_classification` | Project type (federation, club, stadium, toy) | Different types have different sustainability patterns | Type-specific |
 
 ## 10. Documentation and Best Practices
 
-Binary indicators of documentation files and development practices supporting sustainability.
+Binary indicators of documentation files and development practices supporting sustainability. Measured at the analysis end datetime via git checkout.
 
 ### Core Documentation
 
 | Metric | Description | Importance | Related Work |
 |--------|-------------|------------|--------------|
-| `repo_linter_license_file_exists` | LICENSE file present | Legal clarity for reuse | [43] |
-| `repo_linter_readme_file_exists` | README file present | Basic project understanding | [44], [45], [46] |
-| `repo_linter_readme_references_license` | README mentions license | Improves legal clarity | [44], [45] |
-| `repo_linter_changelog_file_exists` | CHANGELOG present | Tracks changes and updates | |
+| `documentation_checks_passed_count` | Total number of documentation checks that passed | Overall documentation completeness score | |
+| `license_file_exists` | LICENSE file present | Legal clarity for reuse | [43] |
+| `readme_file_exists` | README file present | Basic project understanding | [44], [45], [46] |
+| `readme_references_license` | README mentions license | Improves legal clarity | [44], [45] |
+| `changelog_file_exists` | CHANGELOG present | Tracks changes and updates | |
 
 ### Community Guidelines
 
 | Metric | Description | Importance | Related Work |
 |--------|-------------|------------|--------------|
-| `repo_linter_contributing_file_exists` | CONTRIBUTING guidelines present | Facilitates participation | [47], [48] |
-| `repo_linter_code_of_conduct_file_exists` | Code of conduct present | Promotes inclusive environment | [47], [48] |
-| `repo_linter_code_of_conduct_file_contains_email` | Code of conduct includes contact | Reporting mechanism | |
-| `repo_linter_security_file_exists` | SECURITY policy present | Responsible security handling | [49] |
-| `repo_linter_support_file_exists` | SUPPORT info present | Reduces maintainer burden | [47], [48] |
+| `contributing_file_exists` | CONTRIBUTING guidelines present | Facilitates participation | [47], [48] |
+| `code_of_conduct_file_exists` | Code of conduct present | Promotes inclusive environment | [47], [48] |
+| `code_of_conduct_file_contains_email` | Code of conduct includes contact email | Reporting mechanism | |
+| `security_file_exists` | SECURITY policy present | Responsible security handling | [49] |
+| `support_file_exists` | SUPPORT info present | Reduces maintainer burden | [47], [48] |
 
 ### Development Infrastructure
 
 | Metric | Description | Importance | Related Work |
 |--------|-------------|------------|--------------|
-| `repo_linter_test_directory_exists` | Test directory present | Testing infrastructure | [50] |
-| `repo_linter_integrates_with_ci` | CI integration | Automated testing/deployment | [50] |
-| `repo_linter_github_issue_template_exists` | Issue templates present | Improves issue quality | |
-| `repo_linter_github_pull_request_template_exists` | PR templates present | Facilitates code review | |
-| `repo_linter_binaries_not_present` | No binaries in repo | Version control best practices | |
+| `test_directory_exists` | Test directory present | Testing infrastructure | [50] |
+| `integrates_with_ci` | CI integration detected | Automated testing/deployment | [50] |
+| `github_issue_template_exists` | Issue templates present | Improves issue quality | |
+| `github_pull_request_template_exists` | PR templates present | Facilitates code review | |
+| `binaries_not_present` | No binaries in repo | Version control best practices | |
 
-## 11. Gini Coefficients (experimental)
+## 11. Code Churn Metrics
 
-Alternative inequality measures complementing existing sustainability indicators.
-
-| Metric | Description | Sustainability Relationship | Directionality | Related Work |
-|--------|-------------|---------------------------|----------------|--------------|
-| `commit_gini_coefficient` | Gini coefficient of commits across time periods | Alternative inequality measure to entropy (0=equal, 1=maximum inequality) | Lower = more equal | [51], [52] |
-| `lines_changed_gini_coefficient` | Gini coefficient of lines changed across time periods | Development intensity inequality | Lower = more equal | [51], [52] |
-| `contributor_commit_gini` | Gini coefficient of commits per contributor | Measures commit distribution democracy | Context-dependent | [53], [52] |
-| `contributor_lines_gini` | Gini coefficient of lines changed per contributor | Code contribution effort concentration | Context-dependent | [51], [52] |
-| `commit_size_gini` | Gini coefficient of individual commit sizes | Few massive commits vs. many small commits | Context-dependent | [54] |
-| `time_between_commits_gini` | Gini coefficient of inter-commit intervals | Long gaps punctuated by bursts | Context-dependent | [55], [56] |
-
-## 12. Commit Pattern Metrics
-
-Metrics analyzing commit sizing and timing patterns.
+Metrics quantifying code volatility by measuring files that are modified more than once within a single period (i.e., files that "churn"). Computed per period span and per file type, producing keys like `1_week_total_churn_lines`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `commit_size_entropy` | Entropy of commit sizes (lines changed) | Mix of small fixes and large features vs. consistent sizing | Context-dependent | [54] |
-| `commit_size_variation` | Coefficient of variation of commit sizes | Consistent commit practices | Lower = more consistent | [54] |
-| `time_between_commits_entropy` | Entropy of inter-commit time intervals | Regularity of development timing | Higher = more regular | [55], [56] |
-| `time_between_commits_variation` | Coefficient of variation of inter-commit intervals | Consistent development rhythm | Lower = more consistent | [55], [56] |
+| `{period}_{filetype}_churn_lines` | Total lines changed in churning files (modified >1× per period) | High churn may indicate instability or active refactoring | Context-dependent | [24], [60], [61], [62] |
+| `{period}_{filetype}_churn_normalized` | Churn lines as fraction of total lines changed | Normalized volatility indicator | Lower = more stable | [24], [60], [61], [62] |
 
-## 13. Advanced Sustainability Indicators
+## 12. Code Complexity Metrics
 
-Higher-level metrics for comprehensive sustainability assessment.
+Cyclomatic complexity of Python source files, measured at the analysis end datetime. Requires `radon` or equivalent tool to be installed.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `documentation_to_code_ratio` | Documentation lines / source code lines | Maintainability and user onboarding | Higher = more documented | No direct validation found |
-| `contributor_retention_rate` | % contributors returning within 6 months of first commit | Welcoming community and sustainable practices | Higher = better retention | [5], [6], [7], [18] |
-| `releases_per_year` | Tagged releases per year | Active maintenance and user focus | Higher = more regular | [40], [41], [42] |
-| `knowledge_concentration_risk` | % files modified by only one contributor | Knowledge silos from contributor departure | Lower = less concentration | [57], [58], [59] |
-| `simple_code_churn_rate` | (Lines added + deleted) / current total lines | Code volatility or active development | Context-dependent | [24], [60], [61], [62] |
+| `complexity_mean` | Mean cyclomatic complexity across all functions | Average maintainability burden | Lower = simpler | [28] |
+| `complexity_median` | Median cyclomatic complexity across all functions | Typical complexity per function | Lower = simpler | [28] |
+| `complexity_max` | Maximum cyclomatic complexity across all functions | Worst-case complexity hotspot | Lower = simpler | [28] |
+| `complexity_sum` | Sum of cyclomatic complexity across all functions | Total complexity burden of the codebase | Lower = simpler | [28] |
+| `complexity_file_count` | Number of Python files analyzed for complexity | Coverage of complexity analysis | Metadata | |
+
+## 13. Static Analysis Metrics
+
+Halstead software science metrics and maintainability index, computed across Python source files at the analysis end datetime. All aggregate statistics (`mean`, `median`, `std`, `sum`) are computed over per-file values.
+
+| Metric | Description | Sustainability Relationship | Directionality | Related Work |
+|--------|-------------|---------------------------|----------------|--------------|
+| `halstead_volume_{mean\|median\|std\|sum}` | Halstead volume (bits to implement the program) | Implementation size and complexity | Lower = simpler | [28] |
+| `halstead_difficulty_{mean\|median\|std\|sum}` | Halstead difficulty (effort to understand/write) | Developer comprehension burden | Lower = easier | [28] |
+| `halstead_effort_{mean\|median\|std\|sum}` | Halstead effort (volume × difficulty) | Total mental effort to implement | Lower = easier | [28] |
+| `halstead_timerequired_{mean\|median\|std\|sum}` | Estimated time to implement (seconds) | Proxy for implementation complexity | Lower = faster | [28] |
+| `halstead_bugprop_{mean\|median\|std\|sum}` | Estimated bug proportion (delivered bugs per KLOC) | Predicted defect density | Lower = fewer bugs | [28] |
+| `operators_sum_{mean\|median\|std\|sum}` | Total operator tokens per file | Syntactic complexity | Context-dependent | [28] |
+| `operators_uniq_{mean\|median\|std\|sum}` | Unique operator tokens per file | Operator vocabulary richness | Context-dependent | [28] |
+| `operands_sum_{mean\|median\|std\|sum}` | Total operand tokens per file | Data usage complexity | Context-dependent | [28] |
+| `operands_uniq_{mean\|median\|std\|sum}` | Unique operand tokens per file | Operand vocabulary richness | Context-dependent | [28] |
+| `maintainability_index_{mean\|median\|std\|sum}` | Maintainability index (0–100 scale) | Overall code maintainability | Higher = more maintainable | [28] |
+| `static_analysis_file_count` | Number of Python files analyzed | Coverage of static analysis | Metadata | |
+
+## 14. AI Commit Author Metrics
+
+Metrics detecting AI agent involvement in commits, via both direct author/committer identity matching and `Co-authored-by:` trailer scanning. Covers agents: `devin`, `sweep`, `copilot`, `codeium`, `claude`, `cursor`.
+
+| Metric | Description | Sustainability Relationship | Directionality |
+|--------|-------------|---------------------------|----------------|
+| `ai_commit_author_{agent}_commit_count` | Commits where the author/committer identity matches an AI agent pattern | Proportion of AI-authored code | Metadata |
+| `ai_commit_coauthored_{agent}_commit_count` | Commits with a `Co-authored-by:` trailer matching an AI agent | AI-assisted (human-initiated) commits | Metadata |
+| `ai_commit_total_ai_associated_count` | Commits associated with any AI agent (authored or co-authored) | Overall AI involvement in development | Metadata |
+| `ai_commit_ai_associated_proportion` | AI-associated commits / total commits | Fraction of commits with AI involvement | Metadata |
+| `ai_commit_any_detected` | Whether any AI-associated commit was found | Boolean indicator of AI tool usage | Metadata |
+
+## 15. AI Agent Configuration Metrics
+
+Binary indicators of AI coding agent configuration files present in the repository at the analysis end datetime.
+
+| Metric | Description |
+|--------|-------------|
+| `ai_agent_config_claude_md_exists` | `CLAUDE.md` (Claude Code) configuration file present |
+| `ai_agent_config_cursor_rules_exists` | `.cursorrules` (Cursor) configuration file present |
+| `ai_agent_config_copilot_instructions_exists` | `.github/copilot-instructions.md` (GitHub Copilot) present |
+| `ai_agent_config_aider_exists` | `.aider*` (Aider) configuration file present |
+| `ai_agent_config_cline_rules_exists` | `.clinerules` (Cline) configuration file present |
+| `ai_agent_config_windsurf_rules_exists` | `.windsurfrules` (Windsurf) configuration file present |
+| `ai_agent_config_agents_md_exists` | `AGENTS.md` (generic agent instructions) present |
+| `ai_agent_config_any_exists` | Any AI agent configuration file detected |
+
+## 16. AI Code Detection Metrics
+
+Per-function AI authorship classification scores using a trained classifier, reported at three complexity percentile thresholds (`p25`, `p50`, `p75`) to sample files at varying complexity levels. Measured at the analysis end datetime.
+
+| Metric | Description |
+|--------|-------------|
+| `ai_detection_unique_files_checked` | Number of unique source files analyzed |
+| `ai_detection_{p25\|p50\|p75}_filepath` | Path of the file at the given complexity percentile |
+| `ai_detection_{p25\|p50\|p75}_total_function_count` | Total functions analyzed in the sampled file |
+| `ai_detection_{p25\|p50\|p75}_ai_function_count` | Functions classified as AI-generated |
+| `ai_detection_{p25\|p50\|p75}_human_function_count` | Functions classified as human-written |
+| `ai_detection_{p25\|p50\|p75}_ai_function_proportion` | Fraction of functions classified as AI-generated |
+| `ai_detection_{p25\|p50\|p75}_ai_confidence_mean` | Mean classifier confidence for AI-classified functions |
+| `ai_detection_{p25\|p50\|p75}_ai_confidence_std` | Std dev of classifier confidence for AI-classified functions |
+| `ai_detection_{p25\|p50\|p75}_ai_confidence_median` | Median classifier confidence for AI-classified functions |
+| `ai_detection_{p25\|p50\|p75}_human_confidence_mean` | Mean classifier confidence for human-classified functions |
+| `ai_detection_{p25\|p50\|p75}_human_confidence_std` | Std dev of classifier confidence for human-classified functions |
+| `ai_detection_{p25\|p50\|p75}_human_confidence_median` | Median classifier confidence for human-classified functions |
+
+---
 
 ## Works Cited 
 
@@ -311,7 +376,7 @@ Higher-level metrics for comprehensive sustainability assessment.
 
 [56] Hassan, A.E., & Holt, R.C. 2005. *The Top Ten List: Dynamic Fault Prediction.* ICSM. [DOI](https://doi.org/10.1109/ICSM.2005.68)
 
-[57] Bird, C., et al. 2011. *Don’t Touch My Code!* ESEC/FSE. [DOI](https://doi.org/10.1145/2025113.2025119)
+[57] Bird, C., et al. 2011. *Don't Touch My Code!* ESEC/FSE. [DOI](https://doi.org/10.1145/2025113.2025119)
 
 [58] Greiler, M., Herzig, K., & Czerwonka, J. 2015. *Code Ownership and Software Quality.* MSR. [DOI](https://doi.org/10.1109/MSR.2015.9)
 
@@ -322,4 +387,3 @@ Higher-level metrics for comprehensive sustainability assessment.
 [61] Shin, Y., Meneely, A., Williams, L., & Osborne, J.A. 2011. *Evaluating Complexity, Code Churn, and Developer Activity Metrics.* TSE. [DOI](https://doi.org/10.1109/TSE.2010.68)
 
 [62] Faragó, D., Hegedűs, P., Ferenc, R., & Gyimóthy, T. 2015. *Cumulative Code Churn.* SCAM. [DOI](https://doi.org/10.1109/SCAM.2015.7335404)
-
