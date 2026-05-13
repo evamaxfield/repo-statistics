@@ -151,6 +151,10 @@ def _analyze_repository(  # noqa: C901
         ),
     }
 
+    # Save pre-bot-filter df for AI agent authorship detection (agents like
+    # devin-ai-integration[bot] are removed by the bot filter)
+    pre_bot_filter_commits_df = commits_df
+
     # Normalize and drop bot changes
     log.debug("Removing bot changes")
     commits_df, bot_changes_count = commits.normalize_changes_df_and_remove_bot_changes(
@@ -168,6 +172,16 @@ def _analyze_repository(  # noqa: C901
         bot_email_indicators=bot_email_indicators,
     )
     all_metrics["bot_changes_count"] = bot_changes_count
+
+    # Compute AI commit author metrics (uses pre-bot-filter df to catch [bot]-named agents)
+    log.debug("Computing AI commit author metrics")
+    ai_commit_author_results = ai_detection.compute_ai_commit_author_metrics(
+        repo_path=repo_path,
+        commits_df=pre_bot_filter_commits_df,
+        target_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
+    all_metrics.update(ai_commit_author_results.to_dict())
 
     # Compute commit counts
     log.debug("Computing commit counts")
@@ -338,6 +352,16 @@ def _analyze_repository(  # noqa: C901
         )
 
         all_metrics.update(ai_detection_results.to_dict())
+
+    # Compute AI agent config metrics
+    log.debug("Computing AI agent config metrics")
+    ai_agent_config_results = ai_detection.compute_ai_agent_config_metrics(
+        repo_path=repo_path,
+        commits_df=commits_df,
+        target_datetime=end_datetime,
+        datetime_col=datetime_col,
+    )
+    all_metrics.update(ai_agent_config_results.to_dict())
 
     # Compute platform metrics
     if compute_platform_metrics:
