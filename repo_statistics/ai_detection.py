@@ -19,7 +19,11 @@ from .complexity import _check_and_install_complexity_cli
 from .utils import get_commit_hash_for_target_datetime
 
 if TYPE_CHECKING:
-    from transformers import Pipeline
+    from sci_soft_models.ai_detection_clf import (  # type: ignore[import-untyped]
+        AIDetectionError,
+        AIDetectionResult,
+        MultiModelAIDetectionResults,  # type: ignore[misc]
+    )
 
 ###############################################################################
 
@@ -63,42 +67,123 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 @dataclass
 class AIDetectionResults(DataClassJsonMixin):
     ai_detection_unique_files_checked: int
-    # p25
+    # Shared per-percentile filepaths (same file selected for all models)
     ai_detection_p25_filepath: str | None
-    ai_detection_p25_total_function_count: int | None
-    ai_detection_p25_ai_function_count: int | None
-    ai_detection_p25_human_function_count: int | None
-    ai_detection_p25_ai_function_proportion: float | None
-    ai_detection_p25_ai_confidence_mean: float | None
-    ai_detection_p25_ai_confidence_std: float | None
-    ai_detection_p25_ai_confidence_median: float | None
-    ai_detection_p25_human_confidence_mean: float | None
-    ai_detection_p25_human_confidence_std: float | None
-    ai_detection_p25_human_confidence_median: float | None
-    # p50
     ai_detection_p50_filepath: str | None
-    ai_detection_p50_total_function_count: int | None
-    ai_detection_p50_ai_function_count: int | None
-    ai_detection_p50_human_function_count: int | None
-    ai_detection_p50_ai_function_proportion: float | None
-    ai_detection_p50_ai_confidence_mean: float | None
-    ai_detection_p50_ai_confidence_std: float | None
-    ai_detection_p50_ai_confidence_median: float | None
-    ai_detection_p50_human_confidence_mean: float | None
-    ai_detection_p50_human_confidence_std: float | None
-    ai_detection_p50_human_confidence_median: float | None
-    # p75
     ai_detection_p75_filepath: str | None
-    ai_detection_p75_total_function_count: int | None
-    ai_detection_p75_ai_function_count: int | None
-    ai_detection_p75_human_function_count: int | None
-    ai_detection_p75_ai_function_proportion: float | None
-    ai_detection_p75_ai_confidence_mean: float | None
-    ai_detection_p75_ai_confidence_std: float | None
-    ai_detection_p75_ai_confidence_median: float | None
-    ai_detection_p75_human_confidence_mean: float | None
-    ai_detection_p75_human_confidence_std: float | None
-    ai_detection_p75_human_confidence_median: float | None
+    # paigsf (function-level) — p25
+    ai_detection_paigsf_p25_total_function_count: int | None
+    ai_detection_paigsf_p25_ai_function_count: int | None
+    ai_detection_paigsf_p25_human_function_count: int | None
+    ai_detection_paigsf_p25_ai_function_proportion: float | None
+    ai_detection_paigsf_p25_ai_confidence_mean: float | None
+    ai_detection_paigsf_p25_ai_confidence_std: float | None
+    ai_detection_paigsf_p25_ai_confidence_median: float | None
+    ai_detection_paigsf_p25_human_confidence_mean: float | None
+    ai_detection_paigsf_p25_human_confidence_std: float | None
+    ai_detection_paigsf_p25_human_confidence_median: float | None
+    # paigsf — p50
+    ai_detection_paigsf_p50_total_function_count: int | None
+    ai_detection_paigsf_p50_ai_function_count: int | None
+    ai_detection_paigsf_p50_human_function_count: int | None
+    ai_detection_paigsf_p50_ai_function_proportion: float | None
+    ai_detection_paigsf_p50_ai_confidence_mean: float | None
+    ai_detection_paigsf_p50_ai_confidence_std: float | None
+    ai_detection_paigsf_p50_ai_confidence_median: float | None
+    ai_detection_paigsf_p50_human_confidence_mean: float | None
+    ai_detection_paigsf_p50_human_confidence_std: float | None
+    ai_detection_paigsf_p50_human_confidence_median: float | None
+    # paigsf — p75
+    ai_detection_paigsf_p75_total_function_count: int | None
+    ai_detection_paigsf_p75_ai_function_count: int | None
+    ai_detection_paigsf_p75_human_function_count: int | None
+    ai_detection_paigsf_p75_ai_function_proportion: float | None
+    ai_detection_paigsf_p75_ai_confidence_mean: float | None
+    ai_detection_paigsf_p75_ai_confidence_std: float | None
+    ai_detection_paigsf_p75_ai_confidence_median: float | None
+    ai_detection_paigsf_p75_human_confidence_mean: float | None
+    ai_detection_paigsf_p75_human_confidence_std: float | None
+    ai_detection_paigsf_p75_human_confidence_median: float | None
+    # aigcodeset (function-level) — p25
+    ai_detection_aigcodeset_p25_total_function_count: int | None
+    ai_detection_aigcodeset_p25_ai_function_count: int | None
+    ai_detection_aigcodeset_p25_human_function_count: int | None
+    ai_detection_aigcodeset_p25_ai_function_proportion: float | None
+    ai_detection_aigcodeset_p25_ai_confidence_mean: float | None
+    ai_detection_aigcodeset_p25_ai_confidence_std: float | None
+    ai_detection_aigcodeset_p25_ai_confidence_median: float | None
+    ai_detection_aigcodeset_p25_human_confidence_mean: float | None
+    ai_detection_aigcodeset_p25_human_confidence_std: float | None
+    ai_detection_aigcodeset_p25_human_confidence_median: float | None
+    # aigcodeset — p50
+    ai_detection_aigcodeset_p50_total_function_count: int | None
+    ai_detection_aigcodeset_p50_ai_function_count: int | None
+    ai_detection_aigcodeset_p50_human_function_count: int | None
+    ai_detection_aigcodeset_p50_ai_function_proportion: float | None
+    ai_detection_aigcodeset_p50_ai_confidence_mean: float | None
+    ai_detection_aigcodeset_p50_ai_confidence_std: float | None
+    ai_detection_aigcodeset_p50_ai_confidence_median: float | None
+    ai_detection_aigcodeset_p50_human_confidence_mean: float | None
+    ai_detection_aigcodeset_p50_human_confidence_std: float | None
+    ai_detection_aigcodeset_p50_human_confidence_median: float | None
+    # aigcodeset — p75
+    ai_detection_aigcodeset_p75_total_function_count: int | None
+    ai_detection_aigcodeset_p75_ai_function_count: int | None
+    ai_detection_aigcodeset_p75_human_function_count: int | None
+    ai_detection_aigcodeset_p75_ai_function_proportion: float | None
+    ai_detection_aigcodeset_p75_ai_confidence_mean: float | None
+    ai_detection_aigcodeset_p75_ai_confidence_std: float | None
+    ai_detection_aigcodeset_p75_ai_confidence_median: float | None
+    ai_detection_aigcodeset_p75_human_confidence_mean: float | None
+    ai_detection_aigcodeset_p75_human_confidence_std: float | None
+    ai_detection_aigcodeset_p75_human_confidence_median: float | None
+    # codet_m4 (function-level) — p25
+    ai_detection_codet_m4_p25_total_function_count: int | None
+    ai_detection_codet_m4_p25_ai_function_count: int | None
+    ai_detection_codet_m4_p25_human_function_count: int | None
+    ai_detection_codet_m4_p25_ai_function_proportion: float | None
+    ai_detection_codet_m4_p25_ai_confidence_mean: float | None
+    ai_detection_codet_m4_p25_ai_confidence_std: float | None
+    ai_detection_codet_m4_p25_ai_confidence_median: float | None
+    ai_detection_codet_m4_p25_human_confidence_mean: float | None
+    ai_detection_codet_m4_p25_human_confidence_std: float | None
+    ai_detection_codet_m4_p25_human_confidence_median: float | None
+    # codet_m4 — p50
+    ai_detection_codet_m4_p50_total_function_count: int | None
+    ai_detection_codet_m4_p50_ai_function_count: int | None
+    ai_detection_codet_m4_p50_human_function_count: int | None
+    ai_detection_codet_m4_p50_ai_function_proportion: float | None
+    ai_detection_codet_m4_p50_ai_confidence_mean: float | None
+    ai_detection_codet_m4_p50_ai_confidence_std: float | None
+    ai_detection_codet_m4_p50_ai_confidence_median: float | None
+    ai_detection_codet_m4_p50_human_confidence_mean: float | None
+    ai_detection_codet_m4_p50_human_confidence_std: float | None
+    ai_detection_codet_m4_p50_human_confidence_median: float | None
+    # codet_m4 — p75
+    ai_detection_codet_m4_p75_total_function_count: int | None
+    ai_detection_codet_m4_p75_ai_function_count: int | None
+    ai_detection_codet_m4_p75_human_function_count: int | None
+    ai_detection_codet_m4_p75_ai_function_proportion: float | None
+    ai_detection_codet_m4_p75_ai_confidence_mean: float | None
+    ai_detection_codet_m4_p75_ai_confidence_std: float | None
+    ai_detection_codet_m4_p75_ai_confidence_median: float | None
+    ai_detection_codet_m4_p75_human_confidence_mean: float | None
+    ai_detection_codet_m4_p75_human_confidence_std: float | None
+    ai_detection_codet_m4_p75_human_confidence_median: float | None
+    # codemirage (file-level) — p25 / p50 / p75
+    ai_detection_codemirage_p25_ai_classification: str | None
+    ai_detection_codemirage_p25_ai_confidence: float | None
+    ai_detection_codemirage_p50_ai_classification: str | None
+    ai_detection_codemirage_p50_ai_confidence: float | None
+    ai_detection_codemirage_p75_ai_classification: str | None
+    ai_detection_codemirage_p75_ai_confidence: float | None
+    # combined (file-level) — p25 / p50 / p75
+    ai_detection_combined_p25_ai_classification: str | None
+    ai_detection_combined_p25_ai_confidence: float | None
+    ai_detection_combined_p50_ai_classification: str | None
+    ai_detection_combined_p50_ai_confidence: float | None
+    ai_detection_combined_p75_ai_classification: str | None
+    ai_detection_combined_p75_ai_confidence: float | None
 
 
 @dataclass
@@ -114,41 +199,44 @@ class AIAgentConfigResults(DataClassJsonMixin):
 
 
 def _empty_results() -> AIDetectionResults:
+    none_func_stats: dict = {
+        "total_function_count": None,
+        "ai_function_count": None,
+        "human_function_count": None,
+        "ai_function_proportion": None,
+        "ai_confidence_mean": None,
+        "ai_confidence_std": None,
+        "ai_confidence_median": None,
+        "human_confidence_mean": None,
+        "human_confidence_std": None,
+        "human_confidence_median": None,
+    }
+    none_file_stats: dict = {"ai_classification": None, "ai_confidence": None}
+
+    def _func_fields(model: str) -> dict:
+        result = {}
+        for p in ("p25", "p50", "p75"):
+            for k, v in none_func_stats.items():
+                result[f"ai_detection_{model}_{p}_{k}"] = v
+        return result
+
+    def _file_fields(model: str) -> dict:
+        result = {}
+        for p in ("p25", "p50", "p75"):
+            for k, v in none_file_stats.items():
+                result[f"ai_detection_{model}_{p}_{k}"] = v
+        return result
+
     return AIDetectionResults(
         ai_detection_unique_files_checked=0,
         ai_detection_p25_filepath=None,
-        ai_detection_p25_total_function_count=None,
-        ai_detection_p25_ai_function_count=None,
-        ai_detection_p25_human_function_count=None,
-        ai_detection_p25_ai_function_proportion=None,
-        ai_detection_p25_ai_confidence_mean=None,
-        ai_detection_p25_ai_confidence_std=None,
-        ai_detection_p25_ai_confidence_median=None,
-        ai_detection_p25_human_confidence_mean=None,
-        ai_detection_p25_human_confidence_std=None,
-        ai_detection_p25_human_confidence_median=None,
         ai_detection_p50_filepath=None,
-        ai_detection_p50_total_function_count=None,
-        ai_detection_p50_ai_function_count=None,
-        ai_detection_p50_human_function_count=None,
-        ai_detection_p50_ai_function_proportion=None,
-        ai_detection_p50_ai_confidence_mean=None,
-        ai_detection_p50_ai_confidence_std=None,
-        ai_detection_p50_ai_confidence_median=None,
-        ai_detection_p50_human_confidence_mean=None,
-        ai_detection_p50_human_confidence_std=None,
-        ai_detection_p50_human_confidence_median=None,
         ai_detection_p75_filepath=None,
-        ai_detection_p75_total_function_count=None,
-        ai_detection_p75_ai_function_count=None,
-        ai_detection_p75_human_function_count=None,
-        ai_detection_p75_ai_function_proportion=None,
-        ai_detection_p75_ai_confidence_mean=None,
-        ai_detection_p75_ai_confidence_std=None,
-        ai_detection_p75_ai_confidence_median=None,
-        ai_detection_p75_human_confidence_mean=None,
-        ai_detection_p75_human_confidence_std=None,
-        ai_detection_p75_human_confidence_median=None,
+        **_func_fields("paigsf"),
+        **_func_fields("aigcodeset"),
+        **_func_fields("codet_m4"),
+        **_file_fields("codemirage"),
+        **_file_fields("combined"),
     )
 
 
@@ -188,18 +276,18 @@ def compute_ai_detection_metrics(  # noqa: C901
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None = None,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
-    loaded_ai_detection_clf_model: "Pipeline | None" = None,
+    loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
 ) -> AIDetectionResults:
     try:
         import numpy as np
         from nb_to_src import convert_directory
-        from sci_soft_models.ai_detection_clf import (
+        from sci_soft_models.ai_detection_clf import (  # type: ignore[import-untyped]
             AIDetectionError,
             AIDetectionResult,
             detect_ai_in_python_file,
-            load_ai_detection_clf_model,
+            load_all_ai_detection_clf_models,  # type: ignore[misc]
         )
     except ImportError as e:
         raise ImportError(
@@ -208,16 +296,12 @@ def compute_ai_detection_metrics(  # noqa: C901
         ) from e
 
     def _compute_file_stats(
-        file_path: Path,
-        results: list[AIDetectionResult | AIDetectionError],
-        temp_dir: Path,
+        results: "list[AIDetectionResult | AIDetectionError]",
     ) -> dict:
         successes = [r for r in results if isinstance(r, AIDetectionResult)]
         total_function_count = len(successes)
-        filepath = str(file_path.relative_to(temp_dir))
         if total_function_count == 0:
             return {
-                "filepath": filepath,
                 "total_function_count": 0,
                 "ai_function_count": None,
                 "human_function_count": None,
@@ -236,8 +320,8 @@ def compute_ai_detection_metrics(  # noqa: C901
         ai_function_proportion = ai_function_count / total_function_count
 
         def _stats(
-            items: list[AIDetectionResult],
-        ) -> tuple[float | None, float | None, float | None]:
+            items: "list[AIDetectionResult]",
+        ) -> "tuple[float | None, float | None, float | None]":
             if not items:
                 return None, None, None
             scores = np.array([r.ai_confidence for r in items])
@@ -246,7 +330,6 @@ def compute_ai_detection_metrics(  # noqa: C901
         ai_mean, ai_std, ai_median = _stats(ai_results)
         human_mean, human_std, human_median = _stats(human_results)
         return {
-            "filepath": filepath,
             "total_function_count": total_function_count,
             "ai_function_count": ai_function_count,
             "human_function_count": human_function_count,
@@ -257,6 +340,16 @@ def compute_ai_detection_metrics(  # noqa: C901
             "human_confidence_mean": human_mean,
             "human_confidence_std": human_std,
             "human_confidence_median": human_median,
+        }
+
+    def _compute_file_level_stats(
+        result: "AIDetectionResult | AIDetectionError | None",
+    ) -> dict:
+        if result is None or isinstance(result, AIDetectionError):
+            return {"ai_classification": None, "ai_confidence": None}
+        return {
+            "ai_classification": result.ai_classification,
+            "ai_confidence": result.ai_confidence,
         }
 
     print(
@@ -375,66 +468,82 @@ def compute_ai_detection_metrics(  # noqa: C901
                 f"Selected files for AI detection: {p25_file}, {p50_file}, {p75_file}"
             )  # Debug print
 
-            if loaded_ai_detection_clf_model is None:
-                print("No pre-loaded AI detection model provided; loading now (may be slow)...")
-                clf = load_ai_detection_clf_model()
+            if loaded_ai_detection_clf_models is None:
+                print(
+                    "No pre-loaded AI detection models provided; loading now (may be slow)..."
+                )
+                clf_models = load_all_ai_detection_clf_models()
             else:
-                clf = loaded_ai_detection_clf_model
+                clf_models = loaded_ai_detection_clf_models
 
-            # Cache classifications per unique file to avoid redundant model calls
-            _cache: dict[Path, list[AIDetectionResult | AIDetectionError]] = {}
+            # Cache MultiModelAIDetectionResults per unique file
+            _cache: dict[Path, MultiModelAIDetectionResults | None] = {}
             for f in {p25_file, p50_file, p75_file}:
                 try:
-                    _cache[f] = detect_ai_in_python_file(f, clf)
+                    _cache[f] = detect_ai_in_python_file(f, loaded_models=clf_models)  # type: ignore[call-arg]
                 except Exception as e:
                     print(f"detect_ai_in_python_file failed for {f}: {e}")
-                    _cache[f] = []
+                    _cache[f] = None
 
-            p25_stats = _compute_file_stats(p25_file, _cache[p25_file], temp_dir)
-            p50_stats = _compute_file_stats(p50_file, _cache[p50_file], temp_dir)
-            p75_stats = _compute_file_stats(p75_file, _cache[p75_file], temp_dir)
+            def _func_stats_for(
+                file_path: Path,
+                attr: str,
+            ) -> dict:
+                multi = _cache[file_path]
+                if multi is None:
+                    return {
+                        "total_function_count": None,
+                        "ai_function_count": None,
+                        "human_function_count": None,
+                        "ai_function_proportion": None,
+                        "ai_confidence_mean": None,
+                        "ai_confidence_std": None,
+                        "ai_confidence_median": None,
+                        "human_confidence_mean": None,
+                        "human_confidence_std": None,
+                        "human_confidence_median": None,
+                    }
+                return _compute_file_stats(getattr(multi, attr))
+
+            def _file_stats_for(file_path: Path, attr: str) -> dict:
+                multi = _cache[file_path]
+                if multi is None:
+                    return {"ai_classification": None, "ai_confidence": None}
+                return _compute_file_level_stats(getattr(multi, attr))
+
+            def _prefixed(model: str, percentile: str, stats: dict) -> dict:
+                return {f"ai_detection_{model}_{percentile}_{k}": v for k, v in stats.items()}
+
+            all_fields: dict = {
+                "ai_detection_unique_files_checked": unique_files_checked,
+                "ai_detection_p25_filepath": str(p25_file.relative_to(temp_dir)),
+                "ai_detection_p50_filepath": str(p50_file.relative_to(temp_dir)),
+                "ai_detection_p75_filepath": str(p75_file.relative_to(temp_dir)),
+            }
+
+            for model, attr, is_func in [
+                ("paigsf", "paigsf_results", True),
+                ("aigcodeset", "aigcodeset_results", True),
+                ("codet_m4", "codet_m4_results", True),
+                ("codemirage", "codemirage_results", False),
+                ("combined", "combined_results", False),
+            ]:
+                for percentile, file_path in [
+                    ("p25", p25_file),
+                    ("p50", p50_file),
+                    ("p75", p75_file),
+                ]:
+                    if is_func:
+                        stats = _func_stats_for(file_path, attr)
+                    else:
+                        stats = _file_stats_for(file_path, attr)
+                    all_fields.update(_prefixed(model, percentile, stats))
+
             print("Computed AI detection statistics for selected files.")  # Debug print
-
-            return AIDetectionResults(
-                ai_detection_unique_files_checked=unique_files_checked,
-                ai_detection_p25_filepath=p25_stats["filepath"],
-                ai_detection_p25_total_function_count=p25_stats["total_function_count"],
-                ai_detection_p25_ai_function_count=p25_stats["ai_function_count"],
-                ai_detection_p25_human_function_count=p25_stats["human_function_count"],
-                ai_detection_p25_ai_function_proportion=p25_stats["ai_function_proportion"],
-                ai_detection_p25_ai_confidence_mean=p25_stats["ai_confidence_mean"],
-                ai_detection_p25_ai_confidence_std=p25_stats["ai_confidence_std"],
-                ai_detection_p25_ai_confidence_median=p25_stats["ai_confidence_median"],
-                ai_detection_p25_human_confidence_mean=p25_stats["human_confidence_mean"],
-                ai_detection_p25_human_confidence_std=p25_stats["human_confidence_std"],
-                ai_detection_p25_human_confidence_median=p25_stats["human_confidence_median"],
-                ai_detection_p50_filepath=p50_stats["filepath"],
-                ai_detection_p50_total_function_count=p50_stats["total_function_count"],
-                ai_detection_p50_ai_function_count=p50_stats["ai_function_count"],
-                ai_detection_p50_human_function_count=p50_stats["human_function_count"],
-                ai_detection_p50_ai_function_proportion=p50_stats["ai_function_proportion"],
-                ai_detection_p50_ai_confidence_mean=p50_stats["ai_confidence_mean"],
-                ai_detection_p50_ai_confidence_std=p50_stats["ai_confidence_std"],
-                ai_detection_p50_ai_confidence_median=p50_stats["ai_confidence_median"],
-                ai_detection_p50_human_confidence_mean=p50_stats["human_confidence_mean"],
-                ai_detection_p50_human_confidence_std=p50_stats["human_confidence_std"],
-                ai_detection_p50_human_confidence_median=p50_stats["human_confidence_median"],
-                ai_detection_p75_filepath=p75_stats["filepath"],
-                ai_detection_p75_total_function_count=p75_stats["total_function_count"],
-                ai_detection_p75_ai_function_count=p75_stats["ai_function_count"],
-                ai_detection_p75_human_function_count=p75_stats["human_function_count"],
-                ai_detection_p75_ai_function_proportion=p75_stats["ai_function_proportion"],
-                ai_detection_p75_ai_confidence_mean=p75_stats["ai_confidence_mean"],
-                ai_detection_p75_ai_confidence_std=p75_stats["ai_confidence_std"],
-                ai_detection_p75_ai_confidence_median=p75_stats["ai_confidence_median"],
-                ai_detection_p75_human_confidence_mean=p75_stats["human_confidence_mean"],
-                ai_detection_p75_human_confidence_std=p75_stats["human_confidence_std"],
-                ai_detection_p75_human_confidence_median=p75_stats["human_confidence_median"],
-            )
+            return AIDetectionResults(**all_fields)
 
     except Exception as e:
         print(f"Error during AI detection metrics computation: {e}")
-        # Also print the traceback
         import traceback
 
         print(traceback.format_exc())
