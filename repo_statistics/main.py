@@ -386,13 +386,19 @@ class CloneRepositoryParams:
 def get_clone_repository_with_timeout_func(
     timeout_seconds: int,
 ) -> Callable[[CloneRepositoryParams], Repo]:
-    @timeout(timeout_seconds)  # type: ignore
     def clone_repository_with_timeout(
         params: CloneRepositoryParams,
     ) -> Repo:
+        # Use GitPython's native kill_after_timeout rather than the @timeout
+        # decorator: the decorator runs this synchronous clone in a daemon thread
+        # and cannot actually interrupt it, so a stalled network clone leaks a
+        # thread and the git subprocess keeps running. kill_after_timeout is
+        # routed to Git.execute, which kills the git subprocess (its process
+        # group on POSIX) on timeout and raises GitCommandError.
         repo = Repo.clone_from(
             params.repo_path,
             to_path=params.to_path,
+            kill_after_timeout=timeout_seconds,
         )
 
         return repo
