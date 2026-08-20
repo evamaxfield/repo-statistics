@@ -11,7 +11,7 @@ from datetime import date, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
@@ -72,6 +72,8 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 # parameter on compute_ai_detection_metrics (default 100 per Eva's 2026-08-20
 # instruction, superseding the original N=50/N=20 defaults from the plan above).
 _AI_DETECTION_CANDIDATE_FILE_COUNT = 100  # K
+# Caps per-forward-pass GPU memory when a batch of cache-miss texts is inferred at once.
+_AI_DETECTION_INFERENCE_BATCH_SIZE = 16
 
 ###############################################################################
 
@@ -345,19 +347,32 @@ def compute_ai_detection_metrics(  # noqa: C901
     # default, so this is a behavior-neutral drop-in when no seed is passed.
     rng = random.Random(ai_detection_sampling_seed)
 
-    def _classify_cached(combo_key: str, text: str, clf: "Pipeline") -> dict:
+    def _classify_batch_cached(combo_key: str, texts: list[str], clf: "Pipeline") -> list[dict]:
         nonlocal cache_hits, cache_misses
-        text_hash = hashlib.sha256(text.encode()).hexdigest()
         combo_cache = cache.setdefault(combo_key, {})
-        cached = combo_cache.get(text_hash)
-        if cached is not None:
-            cache_hits += 1
-            return cached
-        cache_misses += 1
-        output = clf([text])[0]
-        scored = {"label": output["label"], "score": output["score"]}
-        combo_cache[text_hash] = scored
-        return scored
+        results: list[dict | None] = [None] * len(texts)
+        miss_indices: list[int] = []
+        miss_texts: list[str] = []
+        for i, text in enumerate(texts):
+            text_hash = hashlib.sha256(text.encode()).hexdigest()
+            cached = combo_cache.get(text_hash)
+            if cached is not None:
+                cache_hits += 1
+                results[i] = cached
+            else:
+                cache_misses += 1
+                miss_indices.append(i)
+                miss_texts.append(text)
+
+        if miss_texts:
+            outputs = clf(miss_texts, batch_size=_AI_DETECTION_INFERENCE_BATCH_SIZE)
+            for i, text, output in zip(miss_indices, miss_texts, outputs, strict=True):
+                text_hash = hashlib.sha256(text.encode()).hexdigest()
+                scored = {"label": output["label"], "score": output["score"]}
+                combo_cache[text_hash] = scored
+                results[i] = scored
+
+        return cast("list[dict]", results)
 
     print(
         "Within compute_ai_detection_metrics..."
@@ -492,10 +507,10 @@ def compute_ai_detection_metrics(  # noqa: C901
                 clf = clf_models[combo_key]
 
                 if granularity == "function":
-                    scored = [_classify_cached(combo_key, text, clf) for text in function_texts]
+                    scored = _classify_batch_cached(combo_key, function_texts, clf)
                     stats = _compute_aggregate_stats("function", scored)
                 else:
-                    scored = [_classify_cached(combo_key, text, clf) for text in file_texts]
+                    scored = _classify_batch_cached(combo_key, file_texts, clf)
                     stats = _compute_aggregate_stats("file", scored)
 
                 for stat_name, value in stats.items():
