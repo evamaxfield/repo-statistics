@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
-import json
+import hashlib
 import logging
 import os
+import random
 import shutil
 import subprocess
 from dataclasses import dataclass, field, make_dataclass
@@ -16,15 +17,10 @@ import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
-from .complexity import _check_and_install_complexity_cli
 from .utils import get_commit_hash_for_target_datetime
 
 if TYPE_CHECKING:
-    from sci_soft_models.ai_detection_clf import (  # type: ignore[import-untyped]
-        AIDetectionError,
-        AIDetectionResult,
-        MultiModelAIDetectionResults,  # type: ignore[misc]
-    )
+    from transformers import Pipeline
 
 ###############################################################################
 
@@ -64,6 +60,21 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 
 ###############################################################################
 
+# Sampling budgets for the fixed-budget stratified-random AI-detection sampling
+# design. See `[[2026-08-20-ai-detection-at-scale-classification-plan]]` (Eva's
+# original locked-in numbers, 2026-08-20) for why this shape was chosen. Two-stage
+# funnel for function-granularity combos: sample _AI_DETECTION_CANDIDATE_FILE_COUNT
+# files first (or all, if fewer), AST-parse only those to pool functions, then
+# sample N functions from that pool. File-granularity combos sample N files
+# directly, single-stage, no parsing needed. K (the candidate-file pool for the
+# function funnel) stays a fixed internal implementation constant -- Eva asked for
+# "the sample size" (N) to be configurable, not K. N itself is now a caller-supplied
+# parameter on compute_ai_detection_metrics (default 100 per Eva's 2026-08-20
+# instruction, superseding the original N=50/N=20 defaults from the plan above).
+_AI_DETECTION_CANDIDATE_FILE_COUNT = 100  # K
+
+###############################################################################
+
 
 # AI-detection combo registry, mirroring sci_soft_models.ai_detection_clf.constants.
 # Duplicated (not imported) deliberately: sci-soft-models is an optional dependency
@@ -78,20 +89,31 @@ _AI_DETECTION_DATASET_GRANULARITY: dict[str, Literal["function", "file"]] = {
     "codet-m4": "function",
     "combined": "file",
 }
-_AI_DETECTION_PERCENTILES = ("p25", "p50", "p75")
-_AI_DETECTION_FUNC_STAT_NAMES = (
-    "total_function_count",
-    "ai_function_count",
-    "human_function_count",
-    "ai_function_proportion",
-    "ai_confidence_mean",
-    "ai_confidence_std",
-    "ai_confidence_median",
-    "human_confidence_mean",
-    "human_confidence_std",
-    "human_confidence_median",
-)
-_AI_DETECTION_FILE_STAT_NAMES = ("ai_classification", "ai_confidence")
+def _ai_detection_stat_names(unit: Literal["function", "file"]) -> tuple[str, ...]:
+    """Stat-field-name suffixes for one combo's aggregated N-sample results.
+
+    Same shape for both granularities now that both are N-sample aggregates
+    (previously file-granularity combos classified a single file per percentile
+    and so only needed a single classification/confidence pair — now that they
+    classify a sample of N files just like function-granularity combos classify a
+    sample of N functions, both need the same aggregate stat set).
+    """
+    return (
+        f"total_{unit}_count",
+        f"ai_{unit}_count",
+        f"human_{unit}_count",
+        f"ai_{unit}_proportion",
+        "ai_confidence_mean",
+        "ai_confidence_std",
+        "ai_confidence_median",
+        "human_confidence_mean",
+        "human_confidence_std",
+        "human_confidence_median",
+    )
+
+
+_AI_DETECTION_FUNC_STAT_NAMES = _ai_detection_stat_names("function")
+_AI_DETECTION_FILE_STAT_NAMES = _ai_detection_stat_names("file")
 
 
 def _ai_detection_column_safe(name: str) -> str:
@@ -113,17 +135,27 @@ def _all_ai_detection_combo_keys() -> dict[str, tuple[str, str]]:
 
 
 def _make_ai_detection_results_dataclass() -> type:
-    """Build the AIDetectionResults dataclass with one field per combo x percentile x stat.
+    """Build the AIDetectionResults dataclass with one field per combo x stat.
 
-    Generated rather than hand-written: 15 combos x 3 percentiles x (10 or 2 stats,
-    depending on the dataset's granularity) is ~300 fields, which isn't practical to
-    maintain by hand and would only grow as more base models/datasets are added.
+    Generated rather than hand-written: 15 combos x (10 or 2 stats, depending on the
+    dataset's granularity) is ~90 fields, which isn't practical to maintain by hand
+    and would only grow as more base models/datasets are added. The percentile
+    dimension that used to triple every field (`p25`/`p50`/`p75`) is gone — the new
+    sampling design computes one set of stats per repo-year per combo over the
+    N-sample, not three percentile-conditioned sets.
     """
     fields: list[tuple[str, type, Any]] = [
+        # Sample-auditing metadata, so downstream consumers can confirm the sampler
+        # actually hit its target budgets rather than silently under-sampling
+        # small repos. See the staged-rollout checks in the plan doc.
         ("ai_detection_unique_files_checked", int, field(default=0)),
-        ("ai_detection_p25_filepath", str | None, field(default=None)),
-        ("ai_detection_p50_filepath", str | None, field(default=None)),
-        ("ai_detection_p75_filepath", str | None, field(default=None)),
+        ("ai_detection_core_files_available_count", int, field(default=0)),
+        ("ai_detection_files_sampled_count", int, field(default=0)),
+        ("ai_detection_candidate_files_sampled_count", int, field(default=0)),
+        ("ai_detection_functions_pooled_count", int, field(default=0)),
+        ("ai_detection_functions_sampled_count", int, field(default=0)),
+        ("ai_detection_cache_hits", int, field(default=0)),
+        ("ai_detection_cache_misses", int, field(default=0)),
     ]
     for base_model, dataset in _all_ai_detection_combo_keys().values():
         dataset_col = _ai_detection_column_safe(dataset)
@@ -134,11 +166,10 @@ def _make_ai_detection_results_dataclass() -> type:
             if granularity == "function"
             else _AI_DETECTION_FILE_STAT_NAMES
         )
-        stat_type = str | None if granularity == "file" else int | float | None
-        for percentile in _AI_DETECTION_PERCENTILES:
-            for stat_name in stat_names:
-                field_name = f"ai_detection_{dataset_col}_{model_col}_{percentile}_{stat_name}"
-                fields.append((field_name, stat_type, field(default=None)))
+        stat_type = int | float | None
+        for stat_name in stat_names:
+            field_name = f"ai_detection_{dataset_col}_{model_col}_{stat_name}"
+            fields.append((field_name, stat_type, field(default=None)))
 
     return make_dataclass(
         "AIDetectionResults",
@@ -192,6 +223,13 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
         )
     ]
 
+    # Sorted deterministically (by path relative to repo_path) so that, given the same
+    # seed, `random.Random(seed).sample(...)` over this list reproduces the same sample
+    # across calls. `rglob` order is filesystem-dependent and not guaranteed stable
+    # across separate checkouts/copies of the same commit, so without this sort the same
+    # seed could still yield different samples purely from directory-iteration order.
+    file_list = sorted(file_list, key=lambda f: str(f.relative_to(repo_path)))
+
     return file_list
 
 
@@ -206,16 +244,29 @@ def compute_ai_detection_metrics(  # noqa: C901
     ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
-    install_complexity_if_missing: bool = False,
+    ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,
+    # Controls reproducibility of the stratified-random sampling, not persistence of RNG
+    # state across calls: same seed + same candidate file/function population at call
+    # time -> same sample. A different population (files added/removed/changed between
+    # timepoints) can still yield a different sample with the same seed -- expected, not
+    # a bug, since the sample is drawn from a different population. Default None keeps
+    # today's nondeterministic (fresh-entropy-per-call) behavior unchanged.
+    ai_detection_sampling_seed: int | None = None,
+    # N -- how many functions/files, respectively, to sample per repo-year for
+    # function-granularity vs file-granularity combos. Two separate params since the
+    # code already distinguishes the two granularities and they may legitimately want
+    # different budgets later. Defaults match the original 2026-08-20 sampling-redesign
+    # values (Eva's later "sample size, default 100" instruction referred to the number
+    # of repos to process, not this per-repo function/file budget).
+    ai_detection_function_sample_size: int = 50,
+    ai_detection_file_sample_size: int = 20,
 ) -> DataClassJsonMixin:
     try:
         import numpy as np
         from nb_to_src import convert_directory
         from sci_soft_models.ai_detection_clf import (  # type: ignore[import-untyped]
-            AIDetectionError,
-            AIDetectionResult,
-            detect_ai_in_python_file,
             load_ai_detection_clf_models,  # type: ignore[misc]
+            parse_python_source_file,
         )
     except ImportError as e:
         raise ImportError(
@@ -223,17 +274,21 @@ def compute_ai_detection_metrics(  # noqa: C901
             "Please install with 'pip install repo-statistics[ai]' to use this feature."
         ) from e
 
-    def _compute_file_stats(
-        results: "list[AIDetectionResult | AIDetectionError]",
-    ) -> dict:
-        successes = [r for r in results if isinstance(r, AIDetectionResult)]
-        total_function_count = len(successes)
-        if total_function_count == 0:
+    def _compute_aggregate_stats(unit: str, scored: "list[dict]") -> dict:
+        """Aggregate stats over a combo's N-sample of classified functions/files.
+
+        `scored` is a list of `{"label": "ai" | "human", "score": float}` dicts —
+        one per sampled function (function-granularity combos) or per sampled file
+        (file-granularity combos). Same shape either way, so one implementation
+        covers both.
+        """
+        total = len(scored)
+        if total == 0:
             return {
-                "total_function_count": 0,
-                "ai_function_count": None,
-                "human_function_count": None,
-                "ai_function_proportion": None,
+                f"total_{unit}_count": 0,
+                f"ai_{unit}_count": None,
+                f"human_{unit}_count": None,
+                f"ai_{unit}_proportion": None,
                 "ai_confidence_mean": None,
                 "ai_confidence_std": None,
                 "ai_confidence_median": None,
@@ -241,27 +296,27 @@ def compute_ai_detection_metrics(  # noqa: C901
                 "human_confidence_std": None,
                 "human_confidence_median": None,
             }
-        ai_results = [r for r in successes if r.ai_classification == "ai"]
-        human_results = [r for r in successes if r.ai_classification != "ai"]
-        ai_function_count = len(ai_results)
-        human_function_count = len(human_results)
-        ai_function_proportion = ai_function_count / total_function_count
+        ai_items = [s for s in scored if s["label"] == "ai"]
+        human_items = [s for s in scored if s["label"] != "ai"]
+        ai_count = len(ai_items)
+        human_count = len(human_items)
+        ai_proportion = ai_count / total
 
         def _stats(
-            items: "list[AIDetectionResult]",
+            items: "list[dict]",
         ) -> "tuple[float | None, float | None, float | None]":
             if not items:
                 return None, None, None
-            scores = np.array([r.ai_confidence for r in items])
+            scores = np.array([i["score"] for i in items])
             return float(np.mean(scores)), float(np.std(scores)), float(np.median(scores))
 
-        ai_mean, ai_std, ai_median = _stats(ai_results)
-        human_mean, human_std, human_median = _stats(human_results)
+        ai_mean, ai_std, ai_median = _stats(ai_items)
+        human_mean, human_std, human_median = _stats(human_items)
         return {
-            "total_function_count": total_function_count,
-            "ai_function_count": ai_function_count,
-            "human_function_count": human_function_count,
-            "ai_function_proportion": ai_function_proportion,
+            f"total_{unit}_count": total,
+            f"ai_{unit}_count": ai_count,
+            f"human_{unit}_count": human_count,
+            f"ai_{unit}_proportion": ai_proportion,
             "ai_confidence_mean": ai_mean,
             "ai_confidence_std": ai_std,
             "ai_confidence_median": ai_median,
@@ -270,15 +325,37 @@ def compute_ai_detection_metrics(  # noqa: C901
             "human_confidence_median": human_median,
         }
 
-    def _compute_file_level_stats(
-        result: "AIDetectionResult | AIDetectionError | None",
-    ) -> dict:
-        if result is None or isinstance(result, AIDetectionError):
-            return {"ai_classification": None, "ai_confidence": None}
-        return {
-            "ai_classification": result.ai_classification,
-            "ai_confidence": result.ai_confidence,
-        }
+    # Exact-text cache, keyed cache[combo_key][sha256_hex(text)] = {"label", "score"}.
+    # A caller looping over a repo's annual timepoints can pass the same dict back in
+    # on each call to skip reclassifying functions/files whose text hasn't changed
+    # since a prior timepoint. Default to a fresh dict when the caller doesn't opt in,
+    # so behavior is unchanged for every existing caller today.
+    cache: dict[str, dict[str, dict]] = (
+        ai_detection_result_cache if ai_detection_result_cache is not None else {}
+    )
+    cache_hits = 0
+    cache_misses = 0
+
+    # Local RNG instance, not the module-level `random` functions: this function may run
+    # concurrently across threads/Coiled workers, and mutating global RNG state would be
+    # thread-unsafe and would pollute other unrelated code paths' randomness.
+    # `random.Random(None)` seeds from system entropy identically to the module-level
+    # default, so this is a behavior-neutral drop-in when no seed is passed.
+    rng = random.Random(ai_detection_sampling_seed)
+
+    def _classify_cached(combo_key: str, text: str, clf: "Pipeline") -> dict:
+        nonlocal cache_hits, cache_misses
+        text_hash = hashlib.sha256(text.encode()).hexdigest()
+        combo_cache = cache.setdefault(combo_key, {})
+        cached = combo_cache.get(text_hash)
+        if cached is not None:
+            cache_hits += 1
+            return cached
+        cache_misses += 1
+        output = clf([text])[0]
+        scored = {"label": output["label"], "score": output["score"]}
+        combo_cache[text_hash] = scored
+        return scored
 
     print(
         "Within compute_ai_detection_metrics..."
@@ -289,13 +366,6 @@ def compute_ai_detection_metrics(  # noqa: C901
     resolved_token = hf_token or os.environ.get("HF_TOKEN")
     if resolved_token is not None:
         os.environ["HF_TOKEN"] = resolved_token
-
-    if not _check_and_install_complexity_cli(install_complexity_if_missing):
-        print(
-            "complexity CLI is not available and could not be installed. "
-            "Skipping AI detection metrics."
-        )  # Debug print
-        return _empty_results()
 
     if isinstance(repo_path, Repo):
         repo = repo_path
@@ -329,71 +399,11 @@ def compute_ai_detection_metrics(  # noqa: C901
             )  # Debug print
 
             core_files = _get_core_python_file_set(temp_dir)
+            core_files_available_count = len(core_files)
             if not core_files:
                 return _empty_results()
             print(
                 f"Found {len(core_files)} core Python files to analyze for AI detection."
-            )  # Debug print
-
-            core_files_set = set(core_files)
-
-            result = subprocess.run(
-                ["complexity", "--format", "json"],
-                cwd=str(temp_dir),
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode != 0:
-                print(
-                    f"complexity CLI failed with return code {result.returncode}. "
-                    f"stderr: {result.stderr.strip()}"
-                )
-                return _empty_results()
-
-            try:
-                complexity_data: dict[str, float] = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                print("complexity CLI returned invalid JSON for AI detection.")
-                return _empty_results()
-
-            print(
-                f"complexity CLI returned complexity scores for {len(complexity_data)} files."
-            )  # Debug print
-
-            # Normalize paths from "./relative/path.py" to absolute, filter to core set
-            filtered_scores: dict[Path, float] = {}
-            for rel_path_str, score in complexity_data.items():
-                normalized = rel_path_str.lstrip("./")
-                abs_path = temp_dir / normalized
-                if abs_path in core_files_set:
-                    filtered_scores[abs_path] = score
-
-            if not filtered_scores:
-                return _empty_results()
-
-            scores_series = pl.Series("score", list(filtered_scores.values()))
-            paths_list = list(filtered_scores.keys())
-
-            p25_val = scores_series.quantile(0.25, interpolation="nearest")
-            p50_val = scores_series.quantile(0.50, interpolation="nearest")
-            p75_val = scores_series.quantile(0.75, interpolation="nearest")
-
-            def _select_file(target_val: float | None) -> Path:
-                if target_val is None:
-                    return paths_list[0]
-                for path, score in zip(paths_list, scores_series.to_list(), strict=False):
-                    if score == target_val:
-                        return path
-                return paths_list[0]
-
-            p25_file = _select_file(p25_val)
-            p50_file = _select_file(p50_val)
-            p75_file = _select_file(p75_val)
-
-            unique_files_checked = len({p25_file, p50_file, p75_file})
-            print(
-                f"Selected files for AI detection: {p25_file}, {p50_file}, {p75_file}"
             )  # Debug print
 
             if loaded_ai_detection_clf_models is None:
@@ -404,73 +414,95 @@ def compute_ai_detection_metrics(  # noqa: C901
             else:
                 clf_models = loaded_ai_detection_clf_models
 
-            # Cache MultiModelAIDetectionResults per unique file
-            _cache: dict[Path, MultiModelAIDetectionResults | None] = {}
-            for f in {p25_file, p50_file, p75_file}:
-                try:
-                    _cache[f] = detect_ai_in_python_file(f, loaded_models=clf_models)  # type: ignore[call-arg]
-                except Exception as e:
-                    print(f"detect_ai_in_python_file failed for {f}: {e}")
-                    _cache[f] = None
+            combo_registry = _all_ai_detection_combo_keys()
+            func_combo_keys = [
+                k
+                for k in clf_models
+                if _AI_DETECTION_DATASET_GRANULARITY[combo_registry[k][1]] == "function"
+            ]
+            file_combo_keys = [
+                k
+                for k in clf_models
+                if _AI_DETECTION_DATASET_GRANULARITY[combo_registry[k][1]] == "file"
+            ]
 
-            def _func_stats_for(file_path: Path, combo_key: str) -> dict:
-                multi = _cache[file_path]
-                if multi is None:
-                    return {
-                        "total_function_count": None,
-                        "ai_function_count": None,
-                        "human_function_count": None,
-                        "ai_function_proportion": None,
-                        "ai_confidence_mean": None,
-                        "ai_confidence_std": None,
-                        "ai_confidence_median": None,
-                        "human_confidence_mean": None,
-                        "human_confidence_std": None,
-                        "human_confidence_median": None,
-                    }
-                return _compute_file_stats(multi.results_by_combo.get(combo_key, []))
+            # File-granularity sampling: single-stage, sample N files directly (no
+            # parsing needed — the whole file's text is the classification unit).
+            file_texts: list[str] = []
+            if file_combo_keys:
+                file_sample_size = min(ai_detection_file_sample_size, len(core_files))
+                sampled_files = rng.sample(core_files, file_sample_size)
+                for f in sampled_files:
+                    try:
+                        file_texts.append(f.read_text())
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(f"Failed to read {f} for file-level AI detection: {e}")
+            files_sampled_count = len(file_texts)
 
-            def _file_stats_for(file_path: Path, combo_key: str) -> dict:
-                multi = _cache[file_path]
-                if multi is None:
-                    return {"ai_classification": None, "ai_confidence": None}
-                return _compute_file_level_stats(multi.results_by_combo.get(combo_key))
+            # Function-granularity sampling: bounded two-stage funnel. Sample K
+            # candidate files first (cheap — plain file listing), AST-parse only
+            # those to pool functions, then sample N functions from the pool. This
+            # bounds both files-read and files-parsed to K regardless of repo size.
+            function_texts: list[str] = []
+            candidate_files_sampled_count = 0
+            functions_pooled_count = 0
+            if func_combo_keys:
+                candidate_file_count = min(_AI_DETECTION_CANDIDATE_FILE_COUNT, len(core_files))
+                candidate_files = rng.sample(core_files, candidate_file_count)
+                candidate_files_sampled_count = len(candidate_files)
 
-            def _prefixed(
-                dataset_col: str, model_col: str, percentile: str, stats: dict
-            ) -> dict:
-                return {
-                    f"ai_detection_{dataset_col}_{model_col}_{percentile}_{k}": v
-                    for k, v in stats.items()
-                }
+                pooled_functions: list[str] = []
+                for f in candidate_files:
+                    try:
+                        pooled_functions.extend(parse_python_source_file(f).values())
+                    except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as e:
+                        print(f"Failed to parse {f} for function-level AI detection: {e}")
+                functions_pooled_count = len(pooled_functions)
+
+                function_sample_size = min(
+                    ai_detection_function_sample_size, len(pooled_functions)
+                )
+                function_texts = rng.sample(pooled_functions, function_sample_size)
+            functions_sampled_count = len(function_texts)
+
+            print(
+                f"Sampled {files_sampled_count} files and {functions_sampled_count} "
+                f"functions (from {candidate_files_sampled_count} candidate files, "
+                f"{functions_pooled_count} functions pooled) for AI detection."
+            )  # Debug print
 
             all_fields: dict = {
-                "ai_detection_unique_files_checked": unique_files_checked,
-                "ai_detection_p25_filepath": str(p25_file.relative_to(temp_dir)),
-                "ai_detection_p50_filepath": str(p50_file.relative_to(temp_dir)),
-                "ai_detection_p75_filepath": str(p75_file.relative_to(temp_dir)),
+                "ai_detection_unique_files_checked": (
+                    files_sampled_count + candidate_files_sampled_count
+                ),
+                "ai_detection_core_files_available_count": core_files_available_count,
+                "ai_detection_files_sampled_count": files_sampled_count,
+                "ai_detection_candidate_files_sampled_count": candidate_files_sampled_count,
+                "ai_detection_functions_pooled_count": functions_pooled_count,
+                "ai_detection_functions_sampled_count": functions_sampled_count,
             }
 
-            combo_registry = _all_ai_detection_combo_keys()
             for combo_key in clf_models:
                 base_model, dataset = combo_registry[combo_key]
                 dataset_col = _ai_detection_column_safe(dataset)
                 model_col = _ai_detection_column_safe(base_model)
-                is_func = _AI_DETECTION_DATASET_GRANULARITY[dataset] == "function"
+                granularity = _AI_DETECTION_DATASET_GRANULARITY[dataset]
+                clf = clf_models[combo_key]
 
-                for percentile, file_path in [
-                    ("p25", p25_file),
-                    ("p50", p50_file),
-                    ("p75", p75_file),
-                ]:
-                    stats = (
-                        _func_stats_for(file_path, combo_key)
-                        if is_func
-                        else _file_stats_for(file_path, combo_key)
-                    )
-                    all_fields.update(_prefixed(dataset_col, model_col, percentile, stats))
+                if granularity == "function":
+                    scored = [_classify_cached(combo_key, text, clf) for text in function_texts]
+                    stats = _compute_aggregate_stats("function", scored)
+                else:
+                    scored = [_classify_cached(combo_key, text, clf) for text in file_texts]
+                    stats = _compute_aggregate_stats("file", scored)
 
-            print("Computed AI detection statistics for selected files.")  # Debug print
+                for stat_name, value in stats.items():
+                    all_fields[f"ai_detection_{dataset_col}_{model_col}_{stat_name}"] = value
+
+            all_fields["ai_detection_cache_hits"] = cache_hits
+            all_fields["ai_detection_cache_misses"] = cache_misses
+
+            print("Computed AI detection statistics for sampled functions/files.")  # Debug
             return AIDetectionResults(**all_fields)
 
     except Exception as e:

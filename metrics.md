@@ -243,28 +243,36 @@ Binary indicators of AI coding agent configuration files present in the reposito
 
 ## 16. AI Code Detection Metrics
 
-AI authorship classification scores using one or more trained classifiers, reported at three complexity percentile thresholds (`p25`, `p50`, `p75`) to sample files at varying complexity levels. Measured at the analysis end datetime.
+AI authorship classification scores using one or more trained classifiers, computed over a **fixed-budget stratified random sample** of the repo's core Python functions/files at the analysis end datetime — not a complexity-percentile file selection (that approach was retired 2026-08-20; see `[[2026-08-20-ai-detection-at-scale-classification-plan]]` for the rationale and `[[2026-08-19-ai-detection-inference-investigation]]` for why the old approach produced an unstable year-over-year trend). No external `complexity` CLI dependency is involved in AI detection.
 
-Detection is parameterizable across a `(base_model, dataset)` combo matrix — 3 base models (`modern_bert`, `codebert`, `graphcodebert`) × 5 training datasets (`paigsf`, `aigcodeset`, `codemirage`, `codet_m4`, `combined`). Which combos actually run is controlled by the `ai_detection_model_combos` parameter (`compute_ai_detection_metrics()` / `analyze_repository()`), defaulting to `"ModernBERT"` (that base model across all 5 datasets — the sweep winner on every dataset). Only requested combos produce non-null values; the rest of the (up to 310) generated fields stay `None`.
+**Sampling.** For function/script-granularity datasets (`paigsf`, `aigcodeset`, `codet_m4`), a bounded two-stage funnel: randomly sample up to 100 candidate files (`_AI_DETECTION_CANDIDATE_FILE_COUNT`, a fixed internal constant, K) from the repo's core-Python file set, AST-parse only those to pool their functions, then randomly sample up to `ai_detection_function_sample_size` functions from that pool (a caller-configurable parameter on `compute_ai_detection_metrics()` / `analyze_repository()`, default 50). For file-granularity datasets (`codemirage`, `combined`), a single-stage sample of up to `ai_detection_file_sample_size` files directly (same default, 20; no parsing needed — the whole file's text is the classification unit). If a repo-year has fewer available files/functions than the budget, whatever is available is used — no error, no padding. **The same function sample is scored against every requested function-granularity combo, and the same file sample against every requested file-granularity combo**, so results are directly comparable across combos/models for a given repo-year. An exact-text cache (keyed by a hash of the function/file source) can be threaded across repeated calls (e.g. a caller looping over a repo's annual timepoints) so unchanged code isn't reclassified — see `ai_detection_result_cache` on `compute_ai_detection_metrics()` / `analyze_repository()`.
 
-For function/script-level datasets (`paigsf`, `aigcodeset`, `codet_m4`) each result is per-function; for file-level datasets (`codemirage`, `combined`) each result is for the whole sampled file.
+Detection is parameterizable across a `(base_model, dataset)` combo matrix — 3 base models (`modern_bert`, `codebert`, `graphcodebert`) × 5 training datasets (`paigsf`, `aigcodeset`, `codemirage`, `codet_m4`, `combined`). Which combos actually run is controlled by the `ai_detection_model_combos` parameter (`compute_ai_detection_metrics()` / `analyze_repository()`), defaulting to `"ModernBERT"` (that base model across all 5 datasets — the sweep winner on every dataset). Only requested combos produce non-null values; the rest of the (up to 150) generated per-combo fields stay `None`.
+
+Every dataset now produces the same shape of aggregate stats over its N-sample — function-granularity datasets aggregate over sampled functions, file-granularity datasets aggregate over sampled whole files (previously file-granularity datasets reported a single classification/confidence pair per percentile file; now that they classify a sample of N files just like function-granularity datasets classify a sample of N functions, both need the same aggregate stat set).
 
 | Metric | Description |
 |--------|-------------|
-| `ai_detection_unique_files_checked` | Number of unique source files analyzed |
-| `ai_detection_{p25\|p50\|p75}_filepath` | Path of the file at the given complexity percentile (shared across all combos) |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_total_function_count` | Total functions analyzed in the sampled file (function/script-level datasets only) |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_function_count` | Functions classified as AI-generated |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_function_count` | Functions classified as human-written |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_function_proportion` | Fraction of functions classified as AI-generated |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence_mean` | Mean classifier confidence for AI-classified functions |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence_std` | Std dev of classifier confidence for AI-classified functions |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence_median` | Median classifier confidence for AI-classified functions |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_confidence_mean` | Mean classifier confidence for human-classified functions |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_confidence_std` | Std dev of classifier confidence for human-classified functions |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_confidence_median` | Median classifier confidence for human-classified functions |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_classification` | Whole-file classification, `"ai"` or `"human"` (file-level datasets only) |
-| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence` | Classifier confidence for the whole-file classification (file-level datasets only) |
+| `ai_detection_core_files_available_count` | Total core-Python files found in the repo checkout at this datetime |
+| `ai_detection_files_sampled_count` | Files actually sampled for file-granularity combos (up to 20) |
+| `ai_detection_candidate_files_sampled_count` | Candidate files drawn for the function-sampling funnel (up to 100) |
+| `ai_detection_functions_pooled_count` | Functions pooled from AST-parsing the candidate files |
+| `ai_detection_functions_sampled_count` | Functions actually sampled for function-granularity combos (up to 50) |
+| `ai_detection_unique_files_checked` | Total unique files read for this call (file sample + function-funnel candidate files) |
+| `ai_detection_cache_hits` | Exact-text cache hits across all combos for this call |
+| `ai_detection_cache_misses` | Exact-text cache misses (fresh classifications) across all combos for this call |
+| `ai_detection_{dataset}_{model}_total_{function\|file}_count` | Number of functions/files actually classified for this combo |
+| `ai_detection_{dataset}_{model}_ai_{function\|file}_count` | Functions/files classified as AI-generated |
+| `ai_detection_{dataset}_{model}_human_{function\|file}_count` | Functions/files classified as human-written |
+| `ai_detection_{dataset}_{model}_ai_{function\|file}_proportion` | Fraction classified as AI-generated |
+| `ai_detection_{dataset}_{model}_ai_confidence_mean` | Mean classifier confidence for AI-classified items |
+| `ai_detection_{dataset}_{model}_ai_confidence_std` | Std dev of classifier confidence for AI-classified items |
+| `ai_detection_{dataset}_{model}_ai_confidence_median` | Median classifier confidence for AI-classified items |
+| `ai_detection_{dataset}_{model}_human_confidence_mean` | Mean classifier confidence for human-classified items |
+| `ai_detection_{dataset}_{model}_human_confidence_std` | Std dev of classifier confidence for human-classified items |
+| `ai_detection_{dataset}_{model}_human_confidence_median` | Median classifier confidence for human-classified items |
+
+Calibration (correcting raw scores for the benchmark-to-real-world accuracy gap) is out of scope for this metric family today — raw scores are stored as-is, which keeps the door open for a calibration column to be added later without a rerun.
 
 ---
 

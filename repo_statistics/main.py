@@ -92,6 +92,14 @@ def _analyze_repository(  # noqa: C901
     compute_ai_detection_metrics: bool = False,
     ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
+    ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,
+    # Same seed + same candidate file/function population at call time -> same sample.
+    # A different population (e.g. a later timepoint whose files changed) can still
+    # yield a different sample with the same seed -- expected, not a bug. Default None
+    # preserves nondeterministic (fresh-entropy-per-call) sampling.
+    ai_detection_sampling_seed: int | None = None,
+    ai_detection_function_sample_size: int = 50,
+    ai_detection_file_sample_size: int = 20,
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
 ) -> dict:
@@ -343,8 +351,11 @@ def _analyze_repository(  # noqa: C901
             datetime_col=datetime_col,
             ai_detection_model_combos=ai_detection_model_combos,
             loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
+            ai_detection_result_cache=ai_detection_result_cache,
+            ai_detection_sampling_seed=ai_detection_sampling_seed,
+            ai_detection_function_sample_size=ai_detection_function_sample_size,
+            ai_detection_file_sample_size=ai_detection_file_sample_size,
             hf_token=hf_token,
-            install_complexity_if_missing=install_complexity_if_missing,
         )
 
         all_metrics.update(ai_detection_results.to_dict())
@@ -433,6 +444,14 @@ def analyze_repository(
     compute_ai_detection_metrics: bool = False,
     ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
+    ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,
+    # Same seed + same candidate file/function population at call time -> same sample.
+    # A different population (e.g. a later timepoint whose files changed) can still
+    # yield a different sample with the same seed -- expected, not a bug. Default None
+    # preserves nondeterministic (fresh-entropy-per-call) sampling.
+    ai_detection_sampling_seed: int | None = None,
+    ai_detection_function_sample_size: int = 50,
+    ai_detection_file_sample_size: int = 20,
     hf_token: str | None = None,
     clone_timeout_seconds: int = 60,
     analyze_timeout_seconds: int = 600,
@@ -502,6 +521,10 @@ def analyze_repository(
                     compute_ai_detection_metrics=compute_ai_detection_metrics,
                     ai_detection_model_combos=ai_detection_model_combos,
                     loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
+                    ai_detection_result_cache=ai_detection_result_cache,
+                    ai_detection_sampling_seed=ai_detection_sampling_seed,
+                    ai_detection_function_sample_size=ai_detection_function_sample_size,
+                    ai_detection_file_sample_size=ai_detection_file_sample_size,
                     hf_token=hf_token,
                     install_complexity_if_missing=install_complexity_if_missing,
                 )
@@ -540,6 +563,10 @@ def analyze_repository(
                 compute_ai_detection_metrics=compute_ai_detection_metrics,
                 ai_detection_model_combos=ai_detection_model_combos,
                 loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
+                ai_detection_result_cache=ai_detection_result_cache,
+                ai_detection_sampling_seed=ai_detection_sampling_seed,
+                ai_detection_function_sample_size=ai_detection_function_sample_size,
+                ai_detection_file_sample_size=ai_detection_file_sample_size,
                 install_complexity_if_missing=install_complexity_if_missing,
             )
         except Exception as e:
