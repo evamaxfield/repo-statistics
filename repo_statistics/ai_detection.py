@@ -89,6 +89,8 @@ _AI_DETECTION_DATASET_GRANULARITY: dict[str, Literal["function", "file"]] = {
     "codet-m4": "function",
     "combined": "file",
 }
+
+
 def _ai_detection_stat_names(unit: Literal["function", "file"]) -> tuple[str, ...]:
     """Stat-field-name suffixes for one combo's aggregated N-sample results.
 
