@@ -5,11 +5,12 @@ import logging
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field, make_dataclass
 from datetime import date, datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
@@ -64,126 +65,89 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 ###############################################################################
 
 
-@dataclass
-class AIDetectionResults(DataClassJsonMixin):
-    ai_detection_unique_files_checked: int
-    # Shared per-percentile filepaths (same file selected for all models)
-    ai_detection_p25_filepath: str | None
-    ai_detection_p50_filepath: str | None
-    ai_detection_p75_filepath: str | None
-    # paigsf (function-level) — p25
-    ai_detection_paigsf_p25_total_function_count: int | None
-    ai_detection_paigsf_p25_ai_function_count: int | None
-    ai_detection_paigsf_p25_human_function_count: int | None
-    ai_detection_paigsf_p25_ai_function_proportion: float | None
-    ai_detection_paigsf_p25_ai_confidence_mean: float | None
-    ai_detection_paigsf_p25_ai_confidence_std: float | None
-    ai_detection_paigsf_p25_ai_confidence_median: float | None
-    ai_detection_paigsf_p25_human_confidence_mean: float | None
-    ai_detection_paigsf_p25_human_confidence_std: float | None
-    ai_detection_paigsf_p25_human_confidence_median: float | None
-    # paigsf — p50
-    ai_detection_paigsf_p50_total_function_count: int | None
-    ai_detection_paigsf_p50_ai_function_count: int | None
-    ai_detection_paigsf_p50_human_function_count: int | None
-    ai_detection_paigsf_p50_ai_function_proportion: float | None
-    ai_detection_paigsf_p50_ai_confidence_mean: float | None
-    ai_detection_paigsf_p50_ai_confidence_std: float | None
-    ai_detection_paigsf_p50_ai_confidence_median: float | None
-    ai_detection_paigsf_p50_human_confidence_mean: float | None
-    ai_detection_paigsf_p50_human_confidence_std: float | None
-    ai_detection_paigsf_p50_human_confidence_median: float | None
-    # paigsf — p75
-    ai_detection_paigsf_p75_total_function_count: int | None
-    ai_detection_paigsf_p75_ai_function_count: int | None
-    ai_detection_paigsf_p75_human_function_count: int | None
-    ai_detection_paigsf_p75_ai_function_proportion: float | None
-    ai_detection_paigsf_p75_ai_confidence_mean: float | None
-    ai_detection_paigsf_p75_ai_confidence_std: float | None
-    ai_detection_paigsf_p75_ai_confidence_median: float | None
-    ai_detection_paigsf_p75_human_confidence_mean: float | None
-    ai_detection_paigsf_p75_human_confidence_std: float | None
-    ai_detection_paigsf_p75_human_confidence_median: float | None
-    # aigcodeset (function-level) — p25
-    ai_detection_aigcodeset_p25_total_function_count: int | None
-    ai_detection_aigcodeset_p25_ai_function_count: int | None
-    ai_detection_aigcodeset_p25_human_function_count: int | None
-    ai_detection_aigcodeset_p25_ai_function_proportion: float | None
-    ai_detection_aigcodeset_p25_ai_confidence_mean: float | None
-    ai_detection_aigcodeset_p25_ai_confidence_std: float | None
-    ai_detection_aigcodeset_p25_ai_confidence_median: float | None
-    ai_detection_aigcodeset_p25_human_confidence_mean: float | None
-    ai_detection_aigcodeset_p25_human_confidence_std: float | None
-    ai_detection_aigcodeset_p25_human_confidence_median: float | None
-    # aigcodeset — p50
-    ai_detection_aigcodeset_p50_total_function_count: int | None
-    ai_detection_aigcodeset_p50_ai_function_count: int | None
-    ai_detection_aigcodeset_p50_human_function_count: int | None
-    ai_detection_aigcodeset_p50_ai_function_proportion: float | None
-    ai_detection_aigcodeset_p50_ai_confidence_mean: float | None
-    ai_detection_aigcodeset_p50_ai_confidence_std: float | None
-    ai_detection_aigcodeset_p50_ai_confidence_median: float | None
-    ai_detection_aigcodeset_p50_human_confidence_mean: float | None
-    ai_detection_aigcodeset_p50_human_confidence_std: float | None
-    ai_detection_aigcodeset_p50_human_confidence_median: float | None
-    # aigcodeset — p75
-    ai_detection_aigcodeset_p75_total_function_count: int | None
-    ai_detection_aigcodeset_p75_ai_function_count: int | None
-    ai_detection_aigcodeset_p75_human_function_count: int | None
-    ai_detection_aigcodeset_p75_ai_function_proportion: float | None
-    ai_detection_aigcodeset_p75_ai_confidence_mean: float | None
-    ai_detection_aigcodeset_p75_ai_confidence_std: float | None
-    ai_detection_aigcodeset_p75_ai_confidence_median: float | None
-    ai_detection_aigcodeset_p75_human_confidence_mean: float | None
-    ai_detection_aigcodeset_p75_human_confidence_std: float | None
-    ai_detection_aigcodeset_p75_human_confidence_median: float | None
-    # codet_m4 (function-level) — p25
-    ai_detection_codet_m4_p25_total_function_count: int | None
-    ai_detection_codet_m4_p25_ai_function_count: int | None
-    ai_detection_codet_m4_p25_human_function_count: int | None
-    ai_detection_codet_m4_p25_ai_function_proportion: float | None
-    ai_detection_codet_m4_p25_ai_confidence_mean: float | None
-    ai_detection_codet_m4_p25_ai_confidence_std: float | None
-    ai_detection_codet_m4_p25_ai_confidence_median: float | None
-    ai_detection_codet_m4_p25_human_confidence_mean: float | None
-    ai_detection_codet_m4_p25_human_confidence_std: float | None
-    ai_detection_codet_m4_p25_human_confidence_median: float | None
-    # codet_m4 — p50
-    ai_detection_codet_m4_p50_total_function_count: int | None
-    ai_detection_codet_m4_p50_ai_function_count: int | None
-    ai_detection_codet_m4_p50_human_function_count: int | None
-    ai_detection_codet_m4_p50_ai_function_proportion: float | None
-    ai_detection_codet_m4_p50_ai_confidence_mean: float | None
-    ai_detection_codet_m4_p50_ai_confidence_std: float | None
-    ai_detection_codet_m4_p50_ai_confidence_median: float | None
-    ai_detection_codet_m4_p50_human_confidence_mean: float | None
-    ai_detection_codet_m4_p50_human_confidence_std: float | None
-    ai_detection_codet_m4_p50_human_confidence_median: float | None
-    # codet_m4 — p75
-    ai_detection_codet_m4_p75_total_function_count: int | None
-    ai_detection_codet_m4_p75_ai_function_count: int | None
-    ai_detection_codet_m4_p75_human_function_count: int | None
-    ai_detection_codet_m4_p75_ai_function_proportion: float | None
-    ai_detection_codet_m4_p75_ai_confidence_mean: float | None
-    ai_detection_codet_m4_p75_ai_confidence_std: float | None
-    ai_detection_codet_m4_p75_ai_confidence_median: float | None
-    ai_detection_codet_m4_p75_human_confidence_mean: float | None
-    ai_detection_codet_m4_p75_human_confidence_std: float | None
-    ai_detection_codet_m4_p75_human_confidence_median: float | None
-    # codemirage (file-level) — p25 / p50 / p75
-    ai_detection_codemirage_p25_ai_classification: str | None
-    ai_detection_codemirage_p25_ai_confidence: float | None
-    ai_detection_codemirage_p50_ai_classification: str | None
-    ai_detection_codemirage_p50_ai_confidence: float | None
-    ai_detection_codemirage_p75_ai_classification: str | None
-    ai_detection_codemirage_p75_ai_confidence: float | None
-    # combined (file-level) — p25 / p50 / p75
-    ai_detection_combined_p25_ai_classification: str | None
-    ai_detection_combined_p25_ai_confidence: float | None
-    ai_detection_combined_p50_ai_classification: str | None
-    ai_detection_combined_p50_ai_confidence: float | None
-    ai_detection_combined_p75_ai_classification: str | None
-    ai_detection_combined_p75_ai_confidence: float | None
+# AI-detection combo registry, mirroring sci_soft_models.ai_detection_clf.constants.
+# Duplicated (not imported) deliberately: sci-soft-models is an optional dependency
+# (`repo-statistics[ai]`) loaded lazily inside compute_ai_detection_metrics, so this
+# module's dataclass generation at import time can't depend on it being installed.
+_AI_DETECTION_BASE_MODELS = ["modern-bert", "codebert", "graphcodebert"]
+_AI_DETECTION_DATASET_GRANULARITY: dict[str, Literal["function", "file"]] = {
+    # "script" (aigcodeset) is stats-shape-equivalent to "function": one result per item.
+    "paigsf": "function",
+    "aigcodeset": "function",
+    "codemirage": "file",
+    "codet-m4": "function",
+    "combined": "file",
+}
+_AI_DETECTION_PERCENTILES = ("p25", "p50", "p75")
+_AI_DETECTION_FUNC_STAT_NAMES = (
+    "total_function_count",
+    "ai_function_count",
+    "human_function_count",
+    "ai_function_proportion",
+    "ai_confidence_mean",
+    "ai_confidence_std",
+    "ai_confidence_median",
+    "human_confidence_mean",
+    "human_confidence_std",
+    "human_confidence_median",
+)
+_AI_DETECTION_FILE_STAT_NAMES = ("ai_classification", "ai_confidence")
+
+
+def _ai_detection_column_safe(name: str) -> str:
+    """Turn a hyphenated combo/dataset/model key into a valid Python identifier."""
+    return name.replace("-", "_")
+
+
+def _all_ai_detection_combo_keys() -> dict[str, tuple[str, str]]:
+    """Every valid combo key, mapped to its (base_model, dataset) pair.
+
+    Mirrors sci_soft_models.ai_detection_clf.constants.all_ai_detection_combo_keys() —
+    kept in sync by hand since this module can't import that (optional dependency).
+    """
+    return {
+        f"{base_model}-{dataset}": (base_model, dataset)
+        for base_model in _AI_DETECTION_BASE_MODELS
+        for dataset in _AI_DETECTION_DATASET_GRANULARITY
+    }
+
+
+def _make_ai_detection_results_dataclass() -> type:
+    """Build the AIDetectionResults dataclass with one field per combo x percentile x stat.
+
+    Generated rather than hand-written: 15 combos x 3 percentiles x (10 or 2 stats,
+    depending on the dataset's granularity) is ~300 fields, which isn't practical to
+    maintain by hand and would only grow as more base models/datasets are added.
+    """
+    fields: list[tuple[str, type, Any]] = [
+        ("ai_detection_unique_files_checked", int, field(default=0)),
+        ("ai_detection_p25_filepath", str | None, field(default=None)),
+        ("ai_detection_p50_filepath", str | None, field(default=None)),
+        ("ai_detection_p75_filepath", str | None, field(default=None)),
+    ]
+    for base_model, dataset in _all_ai_detection_combo_keys().values():
+        dataset_col = _ai_detection_column_safe(dataset)
+        model_col = _ai_detection_column_safe(base_model)
+        granularity = _AI_DETECTION_DATASET_GRANULARITY[dataset]
+        stat_names = (
+            _AI_DETECTION_FUNC_STAT_NAMES
+            if granularity == "function"
+            else _AI_DETECTION_FILE_STAT_NAMES
+        )
+        stat_type = str | None if granularity == "file" else int | float | None
+        for percentile in _AI_DETECTION_PERCENTILES:
+            for stat_name in stat_names:
+                field_name = f"ai_detection_{dataset_col}_{model_col}_{percentile}_{stat_name}"
+                fields.append((field_name, stat_type, field(default=None)))
+
+    return make_dataclass(
+        "AIDetectionResults",
+        fields,
+        bases=(DataClassJsonMixin,),
+    )
+
+
+AIDetectionResults = _make_ai_detection_results_dataclass()
 
 
 @dataclass
@@ -198,46 +162,10 @@ class AIAgentConfigResults(DataClassJsonMixin):
     ai_agent_config_any_exists: bool
 
 
-def _empty_results() -> AIDetectionResults:
-    none_func_stats: dict = {
-        "total_function_count": None,
-        "ai_function_count": None,
-        "human_function_count": None,
-        "ai_function_proportion": None,
-        "ai_confidence_mean": None,
-        "ai_confidence_std": None,
-        "ai_confidence_median": None,
-        "human_confidence_mean": None,
-        "human_confidence_std": None,
-        "human_confidence_median": None,
-    }
-    none_file_stats: dict = {"ai_classification": None, "ai_confidence": None}
-
-    def _func_fields(model: str) -> dict:
-        result = {}
-        for p in ("p25", "p50", "p75"):
-            for k, v in none_func_stats.items():
-                result[f"ai_detection_{model}_{p}_{k}"] = v
-        return result
-
-    def _file_fields(model: str) -> dict:
-        result = {}
-        for p in ("p25", "p50", "p75"):
-            for k, v in none_file_stats.items():
-                result[f"ai_detection_{model}_{p}_{k}"] = v
-        return result
-
-    return AIDetectionResults(
-        ai_detection_unique_files_checked=0,
-        ai_detection_p25_filepath=None,
-        ai_detection_p50_filepath=None,
-        ai_detection_p75_filepath=None,
-        **_func_fields("paigsf"),
-        **_func_fields("aigcodeset"),
-        **_func_fields("codet_m4"),
-        **_file_fields("codemirage"),
-        **_file_fields("combined"),
-    )
+def _empty_results() -> DataClassJsonMixin:
+    # Every generated field defaults to 0 (unique_files_checked) or None (everything
+    # else), so an "empty" result is just the dataclass's own defaults.
+    return AIDetectionResults()
 
 
 ###############################################################################
@@ -260,8 +188,7 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
         f
         for f in file_list
         if not any(
-            f.match(pattern, case_sensitive=False)
-            for pattern in _EXCLUDE_TEST_FILENAME_PATTERNS
+            fnmatch(f.name.lower(), pattern) for pattern in _EXCLUDE_TEST_FILENAME_PATTERNS
         )
     ]
 
@@ -276,10 +203,11 @@ def compute_ai_detection_metrics(  # noqa: C901
     commits_df: pl.DataFrame,
     target_datetime: str | date | datetime | None = None,
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
+    ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
-) -> AIDetectionResults:
+) -> DataClassJsonMixin:
     try:
         import numpy as np
         from nb_to_src import convert_directory
@@ -287,7 +215,7 @@ def compute_ai_detection_metrics(  # noqa: C901
             AIDetectionError,
             AIDetectionResult,
             detect_ai_in_python_file,
-            load_all_ai_detection_clf_models,  # type: ignore[misc]
+            load_ai_detection_clf_models,  # type: ignore[misc]
         )
     except ImportError as e:
         raise ImportError(
@@ -472,7 +400,7 @@ def compute_ai_detection_metrics(  # noqa: C901
                 print(
                     "No pre-loaded AI detection models provided; loading now (may be slow)..."
                 )
-                clf_models = load_all_ai_detection_clf_models()
+                clf_models = load_ai_detection_clf_models(combos=ai_detection_model_combos)
             else:
                 clf_models = loaded_ai_detection_clf_models
 
@@ -485,10 +413,7 @@ def compute_ai_detection_metrics(  # noqa: C901
                     print(f"detect_ai_in_python_file failed for {f}: {e}")
                     _cache[f] = None
 
-            def _func_stats_for(
-                file_path: Path,
-                attr: str,
-            ) -> dict:
+            def _func_stats_for(file_path: Path, combo_key: str) -> dict:
                 multi = _cache[file_path]
                 if multi is None:
                     return {
@@ -503,16 +428,21 @@ def compute_ai_detection_metrics(  # noqa: C901
                         "human_confidence_std": None,
                         "human_confidence_median": None,
                     }
-                return _compute_file_stats(getattr(multi, attr))
+                return _compute_file_stats(multi.results_by_combo.get(combo_key, []))
 
-            def _file_stats_for(file_path: Path, attr: str) -> dict:
+            def _file_stats_for(file_path: Path, combo_key: str) -> dict:
                 multi = _cache[file_path]
                 if multi is None:
                     return {"ai_classification": None, "ai_confidence": None}
-                return _compute_file_level_stats(getattr(multi, attr))
+                return _compute_file_level_stats(multi.results_by_combo.get(combo_key))
 
-            def _prefixed(model: str, percentile: str, stats: dict) -> dict:
-                return {f"ai_detection_{model}_{percentile}_{k}": v for k, v in stats.items()}
+            def _prefixed(
+                dataset_col: str, model_col: str, percentile: str, stats: dict
+            ) -> dict:
+                return {
+                    f"ai_detection_{dataset_col}_{model_col}_{percentile}_{k}": v
+                    for k, v in stats.items()
+                }
 
             all_fields: dict = {
                 "ai_detection_unique_files_checked": unique_files_checked,
@@ -521,23 +451,24 @@ def compute_ai_detection_metrics(  # noqa: C901
                 "ai_detection_p75_filepath": str(p75_file.relative_to(temp_dir)),
             }
 
-            for model, attr, is_func in [
-                ("paigsf", "paigsf_results", True),
-                ("aigcodeset", "aigcodeset_results", True),
-                ("codet_m4", "codet_m4_results", True),
-                ("codemirage", "codemirage_results", False),
-                ("combined", "combined_results", False),
-            ]:
+            combo_registry = _all_ai_detection_combo_keys()
+            for combo_key in clf_models:
+                base_model, dataset = combo_registry[combo_key]
+                dataset_col = _ai_detection_column_safe(dataset)
+                model_col = _ai_detection_column_safe(base_model)
+                is_func = _AI_DETECTION_DATASET_GRANULARITY[dataset] == "function"
+
                 for percentile, file_path in [
                     ("p25", p25_file),
                     ("p50", p50_file),
                     ("p75", p75_file),
                 ]:
-                    if is_func:
-                        stats = _func_stats_for(file_path, attr)
-                    else:
-                        stats = _file_stats_for(file_path, attr)
-                    all_fields.update(_prefixed(model, percentile, stats))
+                    stats = (
+                        _func_stats_for(file_path, combo_key)
+                        if is_func
+                        else _file_stats_for(file_path, combo_key)
+                    )
+                    all_fields.update(_prefixed(dataset_col, model_col, percentile, stats))
 
             print("Computed AI detection statistics for selected files.")  # Debug print
             return AIDetectionResults(**all_fields)

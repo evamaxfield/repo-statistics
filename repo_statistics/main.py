@@ -90,6 +90,7 @@ def _analyze_repository(  # noqa: C901
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
     compute_ai_detection_metrics: bool = False,
+    ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
@@ -340,6 +341,7 @@ def _analyze_repository(  # noqa: C901
             commits_df=commits_df,
             target_datetime=end_datetime,
             datetime_col=datetime_col,
+            ai_detection_model_combos=ai_detection_model_combos,
             loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
             hf_token=hf_token,
             install_complexity_if_missing=install_complexity_if_missing,
@@ -429,6 +431,7 @@ def analyze_repository(
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
     compute_ai_detection_metrics: bool = False,
+    ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
     clone_timeout_seconds: int = 60,
@@ -497,6 +500,7 @@ def analyze_repository(
                     compute_complexity_metrics=compute_complexity_metrics,
                     compute_static_analysis_metrics=compute_static_analysis_metrics,
                     compute_ai_detection_metrics=compute_ai_detection_metrics,
+                    ai_detection_model_combos=ai_detection_model_combos,
                     loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
                     hf_token=hf_token,
                     install_complexity_if_missing=install_complexity_if_missing,
@@ -534,6 +538,7 @@ def analyze_repository(
                 compute_complexity_metrics=compute_complexity_metrics,
                 compute_static_analysis_metrics=compute_static_analysis_metrics,
                 compute_ai_detection_metrics=compute_ai_detection_metrics,
+                ai_detection_model_combos=ai_detection_model_combos,
                 loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
                 install_complexity_if_missing=install_complexity_if_missing,
             )
@@ -817,10 +822,18 @@ def analyze_repositories(  # noqa: C901
             f"Got: {type(github_tokens)}"
         )
 
+    # Nothing left to process (e.g. re-running a fully cached batch) --
+    # return early to avoid a divide-by-zero when computing batch size below.
+    if len(to_process_repo_paths) == 0:
+        return AnalyzeRepositoriesResults(
+            metrics_df=pl.DataFrame(results),
+            errors_df=pl.DataFrame(errors),
+        )
+
     # Determine batch size
     if isinstance(batch_size, float):
-        # Round to nearest int
-        int_batch_size = round(len(to_process_repo_paths) * batch_size)
+        # Round to nearest int, but never less than 1 repo per batch
+        int_batch_size = max(1, round(len(to_process_repo_paths) * batch_size))
     else:
         int_batch_size = batch_size
 

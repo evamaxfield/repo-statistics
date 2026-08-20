@@ -243,22 +243,28 @@ Binary indicators of AI coding agent configuration files present in the reposito
 
 ## 16. AI Code Detection Metrics
 
-Per-function AI authorship classification scores using a trained classifier, reported at three complexity percentile thresholds (`p25`, `p50`, `p75`) to sample files at varying complexity levels. Measured at the analysis end datetime.
+AI authorship classification scores using one or more trained classifiers, reported at three complexity percentile thresholds (`p25`, `p50`, `p75`) to sample files at varying complexity levels. Measured at the analysis end datetime.
+
+Detection is parameterizable across a `(base_model, dataset)` combo matrix — 3 base models (`modern_bert`, `codebert`, `graphcodebert`) × 5 training datasets (`paigsf`, `aigcodeset`, `codemirage`, `codet_m4`, `combined`). Which combos actually run is controlled by the `ai_detection_model_combos` parameter (`compute_ai_detection_metrics()` / `analyze_repository()`), defaulting to `"ModernBERT"` (that base model across all 5 datasets — the sweep winner on every dataset). Only requested combos produce non-null values; the rest of the (up to 310) generated fields stay `None`.
+
+For function/script-level datasets (`paigsf`, `aigcodeset`, `codet_m4`) each result is per-function; for file-level datasets (`codemirage`, `combined`) each result is for the whole sampled file.
 
 | Metric | Description |
 |--------|-------------|
 | `ai_detection_unique_files_checked` | Number of unique source files analyzed |
-| `ai_detection_{p25\|p50\|p75}_filepath` | Path of the file at the given complexity percentile |
-| `ai_detection_{p25\|p50\|p75}_total_function_count` | Total functions analyzed in the sampled file |
-| `ai_detection_{p25\|p50\|p75}_ai_function_count` | Functions classified as AI-generated |
-| `ai_detection_{p25\|p50\|p75}_human_function_count` | Functions classified as human-written |
-| `ai_detection_{p25\|p50\|p75}_ai_function_proportion` | Fraction of functions classified as AI-generated |
-| `ai_detection_{p25\|p50\|p75}_ai_confidence_mean` | Mean classifier confidence for AI-classified functions |
-| `ai_detection_{p25\|p50\|p75}_ai_confidence_std` | Std dev of classifier confidence for AI-classified functions |
-| `ai_detection_{p25\|p50\|p75}_ai_confidence_median` | Median classifier confidence for AI-classified functions |
-| `ai_detection_{p25\|p50\|p75}_human_confidence_mean` | Mean classifier confidence for human-classified functions |
-| `ai_detection_{p25\|p50\|p75}_human_confidence_std` | Std dev of classifier confidence for human-classified functions |
-| `ai_detection_{p25\|p50\|p75}_human_confidence_median` | Median classifier confidence for human-classified functions |
+| `ai_detection_{p25\|p50\|p75}_filepath` | Path of the file at the given complexity percentile (shared across all combos) |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_total_function_count` | Total functions analyzed in the sampled file (function/script-level datasets only) |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_function_count` | Functions classified as AI-generated |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_function_count` | Functions classified as human-written |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_function_proportion` | Fraction of functions classified as AI-generated |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence_mean` | Mean classifier confidence for AI-classified functions |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence_std` | Std dev of classifier confidence for AI-classified functions |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence_median` | Median classifier confidence for AI-classified functions |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_confidence_mean` | Mean classifier confidence for human-classified functions |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_confidence_std` | Std dev of classifier confidence for human-classified functions |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_human_confidence_median` | Median classifier confidence for human-classified functions |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_classification` | Whole-file classification, `"ai"` or `"human"` (file-level datasets only) |
+| `ai_detection_{dataset}_{model}_{p25\|p50\|p75}_ai_confidence` | Classifier confidence for the whole-file classification (file-level datasets only) |
 
 ---
 
