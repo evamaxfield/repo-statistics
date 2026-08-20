@@ -124,13 +124,21 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
         repo = Repo(repo_path)
 
     # Single subprocess: emit all commits with per-file numstat in one call.
-    # Each commit starts with a COMMIT| header line, followed by tab-separated
+    # Each commit starts with a COMMIT<NUL> header line, followed by tab-separated
     # file stat lines, separated by blank lines.
+    #
+    # Fields are NUL-separated (via %x00), not "|"-separated: author/committer
+    # names and emails are free-form text that can legally contain "|" (e.g. a
+    # real author name like "Aalok | आलोक" broke a previous "|"-delimited
+    # version of this parser, silently misaligning every field after the
+    # embedded "|" -- including the date fields, which then failed to parse).
+    # NUL cannot appear in git ref/commit metadata, so it can't collide with
+    # real field content the way "|" can.
     result = subprocess.run(
         [
             "git",
             "log",
-            "--format=COMMIT|%H|%an|%ae|%cn|%ce|%ai|%ci|%s",
+            "--format=COMMIT%x00%H%x00%an%x00%ae%x00%cn%x00%ce%x00%ai%x00%ci%x00%s",
             "--numstat",
             "--no-renames",
             "HEAD",
@@ -146,7 +154,7 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     per_file_commit_deltas: list[PerFileCommitDelta] = []
     per_commit_summaries: list[CommitSummary] = []
 
-    # Per-commit state (set on each COMMIT| line)
+    # Per-commit state (set on each COMMIT<NUL> line)
     current_authored_datetime: datetime | None = None
     current_committed_datetime: datetime | None = None
     current_commit_hash: str | None = None
@@ -156,7 +164,7 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     current_author_name: str | None = None
     current_author_email: str | None = None
 
-    # Per-commit counters (reset on each COMMIT| line)
+    # Per-commit counters (reset on each COMMIT<NUL> line)
     counters = _make_counters()
 
     def _flush_commit() -> None:
@@ -176,11 +184,14 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
 
     in_commit = False
     for line in tqdm(output.splitlines(), desc="Parsing commits", leave=False):
-        if line.startswith("COMMIT|"):
+        if line.startswith("COMMIT\x00"):
             if in_commit:
                 _flush_commit()
-            # maxsplit=8 so commit messages containing "|" are preserved intact
-            parts = line.split("|", 8)
+            # NUL can't appear in any of these fields, so a plain split is
+            # unambiguous -- no maxsplit needed (unlike the old "|"-delimited
+            # version, which had to glom the commit message into a final
+            # remainder field to guard against embedded "|"s).
+            parts = line.split("\x00")
             current_commit_hash = parts[1]
             current_author_name = parts[2] or None
             current_author_email = parts[3] or None

@@ -194,12 +194,24 @@ def compute_static_analysis_metrics(  # noqa: C901
         if not files:
             return _empty_results()
 
-        # Run multimetric on all files
-        result = subprocess.run(
-            ["multimetric", *files],
-            capture_output=True,
-            text=True,
-        )
+        # Run multimetric on all files.
+        # Like pygount/complexity, this scans every file's content and can be
+        # pathologically slow on large repos -- bound it so a stuck subprocess
+        # can't silently consume the whole outer analyze_timeout_seconds budget.
+        multimetric_timeout_seconds = 90
+        try:
+            result = subprocess.run(
+                ["multimetric", *files],
+                capture_output=True,
+                text=True,
+                timeout=multimetric_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning(
+                f"multimetric exceeded {multimetric_timeout_seconds}s timeout "
+                f"for repo at {repo_dir}."
+            )
+            return _empty_results()
 
         if result.returncode != 0:
             log.warning(

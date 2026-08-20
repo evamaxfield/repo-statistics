@@ -6,6 +6,7 @@ import traceback
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import partial
 from itertools import cycle
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -457,8 +458,18 @@ def analyze_repository(
     analyze_timeout_seconds: int = 600,
     install_complexity_if_missing: bool = True,
 ) -> dict | TrackedErrorResult:
-    # Wrap private analyze function with timeout
-    @timeout(analyze_timeout_seconds)  # type: ignore
+    # Wrap private analyze function with timeout.
+    # timeout_function_decorator's `timeout` raises `exception_to_raise()` (called
+    # with no arguments) when the wrapped call exceeds `timeout_duration`. The
+    # default `exception_to_raise` is bare `TimeoutError`, whose `str()` is empty --
+    # that produced silent, message-less failures downstream (`err=""`). Use a
+    # partial so the raised exception always carries a real message.
+    timeout_exception = partial(
+        TimeoutError,
+        f"Analysis exceeded {analyze_timeout_seconds}s timeout",
+    )
+
+    @timeout(analyze_timeout_seconds, exception_to_raise=timeout_exception)  # type: ignore
     def _analyze_repository_with_timeout(
         **kwargs: Any,
     ) -> dict:

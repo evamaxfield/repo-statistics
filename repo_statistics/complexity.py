@@ -69,12 +69,20 @@ def _install_and_setup_complexity_cli() -> bool:
 
     # Download and extract the tar.gz
     log.info(f"Downloading complexity CLI from {url}...")
-    download_result = subprocess.run(
-        ["curl", "-L", url, "-o", "complexity.tar.gz"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        download_result = subprocess.run(
+            ["curl", "-L", url, "-o", "complexity.tar.gz"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning(
+            "Downloading complexity CLI exceeded 60s timeout. "
+            "Please install complexity manually. Returning empty results."
+        )
+        return False
     if download_result.returncode != 0:
         log.warning(
             f"Failed to download complexity CLI: "
@@ -210,13 +218,32 @@ def compute_complexity_metrics(  # noqa: C901
         repo.git.checkout(target_hex)
         repo_dir = repo.working_dir
 
-        # Run complexity CLI
-        result = subprocess.run(
-            ["complexity"],
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-        )
+        # Run complexity CLI.
+        # Like pygount (see source.py), this scans every file in the repo and can
+        # be pathologically slow on very large repos -- bound it so a stuck
+        # subprocess can't silently consume the whole outer analyze_timeout_seconds
+        # budget.
+        complexity_cli_timeout_seconds = 90
+        try:
+            result = subprocess.run(
+                ["complexity"],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+                timeout=complexity_cli_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning(
+                f"complexity CLI exceeded {complexity_cli_timeout_seconds}s timeout "
+                f"for repo at {repo_dir}."
+            )
+            return ComplexityResults(
+                complexity_mean=None,
+                complexity_median=None,
+                complexity_max=None,
+                complexity_sum=None,
+                complexity_file_count=0,
+            )
 
         if result.returncode != 0:
             log.warning(

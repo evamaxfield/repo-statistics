@@ -74,16 +74,29 @@ def compute_sloc_metrics(  # noqa: C901
         # Get repo_dir from repo
         repo_dir = repo.working_dir
 
-        # Run cloc on the repo
-        pygount_output = subprocess.run(
-            [
-                "pygount",
-                "--format=json",
-                repo_dir,
-            ],
-            capture_output=True,
-            text=True,
-        )
+        # Run cloc on the repo.
+        # pygount can be pathologically slow (observed: indefinite hang) on very
+        # large plain-text/data files, so bound it -- otherwise a single stuck
+        # subprocess silently consumes the whole outer analyze_timeout_seconds
+        # budget and produces a blank ("") error message once that outer timeout
+        # fires.
+        pygount_timeout_seconds = 60
+        try:
+            pygount_output = subprocess.run(
+                [
+                    "pygount",
+                    "--format=json",
+                    repo_dir,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=pygount_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"pygount SLOC counting exceeded {pygount_timeout_seconds}s timeout "
+                f"for repo at {repo_dir}."
+            ) from e
 
         if pygount_output.returncode != 0:
             raise RuntimeError(
