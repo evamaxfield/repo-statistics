@@ -88,13 +88,19 @@ def get_periods_changed(
 
     # Iterate over periods and record binary or lines changed count
     current_start_dt: datetime = start_datetime
-    for _ in tqdm(range(n_tds), desc="Processing change periods", leave=False):
-        # Get the subset of commits in this period
+    for period_idx in tqdm(range(n_tds), desc="Processing change periods", leave=False):
+        # Get the subset of commits in this period.
+        # Each period is left-inclusive, right-exclusive ([start, start+td)) so that
+        # a commit landing exactly on a period boundary is only ever counted once.
+        # The final period is closed on both ends so that a commit landing exactly
+        # on end_datetime (e.g. when the total duration is an exact multiple of
+        # period_span) is still included, instead of silently being dropped.
+        is_last_period = period_idx == n_tds - 1
         commit_subset = commits_df.filter(
             pl.col(datetime_col).is_between(
                 current_start_dt,
                 current_start_dt + td,
-                closed="left",
+                closed="both" if is_last_period else "left",
             )
         )
 
