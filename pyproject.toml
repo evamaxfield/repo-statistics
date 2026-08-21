@@ -37,7 +37,6 @@ dependencies = [
   "polars>=1,<2",
   "pygount>=3,<4",
   "pyyaml>=6,<7",
-  "timeout-function-decorator>=2,<3",
   "tqdm>=4,<5",
   "multimetric>=2,<3",
 ]

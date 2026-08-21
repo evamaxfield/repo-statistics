@@ -7,7 +7,7 @@ import random
 import shutil
 import subprocess
 from dataclasses import dataclass, field, make_dataclass
-from datetime import date, datetime
+from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,7 +17,7 @@ import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
-from .utils import get_commit_hash_for_target_datetime
+from .utils import AnalysisTimeoutError, Deadline
 
 if TYPE_CHECKING:
     from transformers import Pipeline
@@ -242,9 +242,6 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
 
 def compute_ai_detection_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     ai_detection_model_combos: "str | list[str]" = "ModernBERT",
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
@@ -264,6 +261,7 @@ def compute_ai_detection_metrics(  # noqa: C901
     # of repos to process, not this per-repo function/file budget).
     ai_detection_function_sample_size: int = 50,
     ai_detection_file_sample_size: int = 20,
+    deadline: Deadline | None = None,
 ) -> DataClassJsonMixin:
     try:
         import numpy as np
@@ -364,9 +362,15 @@ def compute_ai_detection_metrics(  # noqa: C901
                 miss_indices.append(i)
                 miss_texts.append(text)
 
-        if miss_texts:
-            outputs = clf(miss_texts, batch_size=_AI_DETECTION_INFERENCE_BATCH_SIZE)
-            for i, text, output in zip(miss_indices, miss_texts, outputs, strict=True):
+        # Chunk inference so the deadline is checked between batches rather than only
+        # before an unbounded whole-sample run.
+        for start in range(0, len(miss_texts), _AI_DETECTION_INFERENCE_BATCH_SIZE):
+            if deadline is not None:
+                deadline.check()
+            batch_indices = miss_indices[start : start + _AI_DETECTION_INFERENCE_BATCH_SIZE]
+            batch_texts = miss_texts[start : start + _AI_DETECTION_INFERENCE_BATCH_SIZE]
+            outputs = clf(batch_texts, batch_size=_AI_DETECTION_INFERENCE_BATCH_SIZE)
+            for i, text, output in zip(batch_indices, batch_texts, outputs, strict=True):
                 text_hash = hashlib.sha256(text.encode()).hexdigest()
                 scored = {"label": output["label"], "score": output["score"]}
                 combo_cache[text_hash] = scored
@@ -389,20 +393,7 @@ def compute_ai_detection_metrics(  # noqa: C901
     else:
         repo = Repo(repo_path)
 
-    target_hex = get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
-        target_datetime=target_datetime,
-        datetime_col=datetime_col,
-    )
-    print(f"Target commit hash for AI detection: {target_hex}")  # Debug print
-
     try:
-        original_ref = repo.active_branch.name
-    except TypeError:
-        original_ref = repo.head.commit.hexsha
-
-    try:
-        repo.git.checkout(target_hex)
         repo_dir = Path(repo.working_dir)
 
         with TemporaryDirectory() as tmpdir:
@@ -470,6 +461,8 @@ def compute_ai_detection_metrics(  # noqa: C901
 
                 pooled_functions: list[str] = []
                 for f in candidate_files:
+                    if deadline is not None:
+                        deadline.check()
                     try:
                         pooled_functions.extend(parse_python_source_file(f).values())
                     except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as e:
@@ -522,6 +515,9 @@ def compute_ai_detection_metrics(  # noqa: C901
             print("Computed AI detection statistics for sampled functions/files.")  # Debug
             return AIDetectionResults(**all_fields)
 
+    except AnalysisTimeoutError:
+        raise
+
     except Exception as e:
         print(f"Error during AI detection metrics computation: {e}")
         import traceback
@@ -529,9 +525,6 @@ def compute_ai_detection_metrics(  # noqa: C901
         print(traceback.format_exc())
 
         return _empty_results()
-
-    finally:
-        repo.git.checkout(original_ref)
 
 
 ###############################################################################
@@ -549,42 +542,23 @@ _AI_AGENT_CONFIG_GLOBS: list[tuple[str, list[str]]] = [
 
 def compute_ai_agent_config_metrics(
     repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> AIAgentConfigResults:
     if isinstance(repo_path, Repo):
         repo = repo_path
     else:
         repo = Repo(repo_path)
 
-    target_hex = get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
-        target_datetime=target_datetime,
-        datetime_col=datetime_col,
+    repo_dir = Path(repo.working_dir)
+
+    field_values: dict[str, bool] = {}
+    for field_name, patterns in _AI_AGENT_CONFIG_GLOBS:
+        found = any(list(repo_dir.glob(pattern)) for pattern in patterns)
+        field_values[field_name] = found
+
+    return AIAgentConfigResults(
+        **field_values,
+        ai_agent_config_any_exists=any(field_values.values()),
     )
-
-    try:
-        original_ref = repo.active_branch.name
-    except TypeError:
-        original_ref = repo.head.commit.hexsha
-
-    try:
-        repo.git.checkout(target_hex)
-        repo_dir = Path(repo.working_dir)
-
-        field_values: dict[str, bool] = {}
-        for field_name, patterns in _AI_AGENT_CONFIG_GLOBS:
-            found = any(list(repo_dir.glob(pattern)) for pattern in patterns)
-            field_values[field_name] = found
-
-        return AIAgentConfigResults(
-            **field_values,
-            ai_agent_config_any_exists=any(field_values.values()),
-        )
-
-    finally:
-        repo.git.checkout(original_ref)
 
 
 ###############################################################################

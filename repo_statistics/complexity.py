@@ -5,16 +5,17 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import date, datetime
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
-import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
-from .utils import get_commit_hash_for_target_datetime, get_linguist_file_type
+from .utils import (
+    Deadline,
+    checked_subprocess_timeout,
+    get_linguist_file_type,
+)
 
 ###############################################################################
 
@@ -180,10 +181,8 @@ def _check_and_install_complexity_cli(install_if_missing: bool) -> bool:
 
 def compute_complexity_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     install_complexity_if_missing: bool = False,
+    deadline: Deadline | None = None,
 ) -> ComplexityResults:
     # Check if complexity CLI is available (and optionally install it)
     if not _check_and_install_complexity_cli(install_complexity_if_missing):
@@ -201,101 +200,82 @@ def compute_complexity_metrics(  # noqa: C901
     else:
         repo = Repo(repo_path)
 
-    # Get the latest commit hexsha for the target datetime
-    target_hex = get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
-        target_datetime=target_datetime,
-        datetime_col=datetime_col,
-    )
+    repo_dir = repo.working_dir
 
-    # Save the original HEAD ref to restore later
+    # Run complexity CLI.
+    # Like pygount (see source.py), this scans every file in the repo and can
+    # be pathologically slow on very large repos -- bound it so a stuck
+    # subprocess can't silently consume the whole outer analyze deadline.
+    complexity_cli_timeout_seconds = checked_subprocess_timeout(deadline, 90)
     try:
-        original_ref = repo.active_branch.name
-    except TypeError:
-        original_ref = repo.head.commit.hexsha
-
-    try:
-        repo.git.checkout(target_hex)
-        repo_dir = repo.working_dir
-
-        # Run complexity CLI.
-        # Like pygount (see source.py), this scans every file in the repo and can
-        # be pathologically slow on very large repos -- bound it so a stuck
-        # subprocess can't silently consume the whole outer analyze_timeout_seconds
-        # budget.
-        complexity_cli_timeout_seconds = 90
-        try:
-            result = subprocess.run(
-                ["complexity"],
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-                timeout=complexity_cli_timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            log.warning(
-                f"complexity CLI exceeded {complexity_cli_timeout_seconds}s timeout "
-                f"for repo at {repo_dir}."
-            )
-            return ComplexityResults(
-                complexity_mean=None,
-                complexity_median=None,
-                complexity_max=None,
-                complexity_sum=None,
-                complexity_file_count=0,
-            )
-
-        if result.returncode != 0:
-            log.warning(
-                f"complexity CLI failed with return code {result.returncode}. "
-                f"stderr: {result.stderr.strip()}"
-            )
-            return ComplexityResults(
-                complexity_mean=None,
-                complexity_median=None,
-                complexity_max=None,
-                complexity_sum=None,
-                complexity_file_count=0,
-            )
-
-        # Parse output: each line is "score filepath"
-        scores: list[float] = []
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-
-            parts = line.split(None, 1)
-            if len(parts) != 2:
-                continue
-
-            try:
-                score = float(parts[0])
-            except ValueError:
-                continue
-
-            filepath = parts[1]
-            # Only include programming files
-            if get_linguist_file_type(filepath) == "programming":
-                scores.append(score)
-
-        if len(scores) == 0:
-            return ComplexityResults(
-                complexity_mean=None,
-                complexity_median=None,
-                complexity_max=None,
-                complexity_sum=None,
-                complexity_file_count=0,
-            )
-
-        arr = np.array(scores)
+        result = subprocess.run(
+            ["complexity"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=complexity_cli_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning(
+            f"complexity CLI exceeded {complexity_cli_timeout_seconds}s timeout "
+            f"for repo at {repo_dir}."
+        )
         return ComplexityResults(
-            complexity_mean=float(np.mean(arr)),
-            complexity_median=float(np.median(arr)),
-            complexity_max=float(np.max(arr)),
-            complexity_sum=float(np.sum(arr)),
-            complexity_file_count=len(scores),
+            complexity_mean=None,
+            complexity_median=None,
+            complexity_max=None,
+            complexity_sum=None,
+            complexity_file_count=0,
         )
 
-    finally:
-        repo.git.checkout(original_ref)
+    if result.returncode != 0:
+        log.warning(
+            f"complexity CLI failed with return code {result.returncode}. "
+            f"stderr: {result.stderr.strip()}"
+        )
+        return ComplexityResults(
+            complexity_mean=None,
+            complexity_median=None,
+            complexity_max=None,
+            complexity_sum=None,
+            complexity_file_count=0,
+        )
+
+    # Parse output: each line is "score filepath"
+    scores: list[float] = []
+    for line in result.stdout.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+
+        try:
+            score = float(parts[0])
+        except ValueError:
+            continue
+
+        filepath = parts[1]
+        # Only include programming files
+        if get_linguist_file_type(filepath) == "programming":
+            scores.append(score)
+
+    if len(scores) == 0:
+        return ComplexityResults(
+            complexity_mean=None,
+            complexity_median=None,
+            complexity_max=None,
+            complexity_sum=None,
+            complexity_file_count=0,
+        )
+
+    arr = np.array(scores)
+    return ComplexityResults(
+        complexity_mean=float(np.mean(arr)),
+        complexity_median=float(np.median(arr)),
+        complexity_max=float(np.max(arr)),
+        complexity_sum=float(np.sum(arr)),
+        complexity_file_count=len(scores),
+    )

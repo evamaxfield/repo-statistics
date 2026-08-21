@@ -5,17 +5,18 @@ import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import date, datetime
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
-import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
 from .constants import FileTypes
-from .utils import get_commit_hash_for_target_datetime, get_linguist_file_type
+from .utils import (
+    Deadline,
+    checked_subprocess_timeout,
+    get_linguist_file_type,
+)
 
 ###############################################################################
 
@@ -146,9 +147,7 @@ def _extract_file_metrics(file_data: dict) -> dict:
 
 def compute_static_analysis_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
+    deadline: Deadline | None = None,
 ) -> StaticAnalysisResults:
     # Check if multimetric CLI is available
     if shutil.which("multimetric") is None:
@@ -164,77 +163,59 @@ def compute_static_analysis_metrics(  # noqa: C901
     else:
         repo = Repo(repo_path)
 
-    # Get the latest commit hexsha for the target datetime
-    target_hex = get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
-        target_datetime=target_datetime,
-        datetime_col=datetime_col,
-    )
+    repo_dir = Path(repo.working_dir)
 
-    # Save the original HEAD ref to restore later
+    # Collect all non-binary files
+    files: list[str] = []
+    for fp in repo_dir.rglob("*"):
+        if fp.is_file() and ".git" not in fp.parts:
+            try:
+                fp.read_text(encoding="utf-8")
+                files.append(str(fp))
+            except (UnicodeDecodeError, PermissionError):
+                continue
+
+    if not files:
+        return _empty_results()
+
+    # Run multimetric on all files.
+    # Like pygount/complexity, this scans every file's content and can be
+    # pathologically slow on large repos -- bound it so a stuck subprocess
+    # can't silently consume the whole outer analyze deadline.
+    multimetric_timeout_seconds = checked_subprocess_timeout(deadline, 90)
     try:
-        original_ref = repo.active_branch.name
-    except TypeError:
-        original_ref = repo.head.commit.hexsha
+        result = subprocess.run(
+            ["multimetric", *files],
+            capture_output=True,
+            text=True,
+            timeout=multimetric_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning(
+            f"multimetric exceeded {multimetric_timeout_seconds}s timeout "
+            f"for repo at {repo_dir}."
+        )
+        return _empty_results()
+
+    if result.returncode != 0:
+        log.warning(
+            f"multimetric failed with return code {result.returncode}. "
+            f"stderr: {result.stderr.strip()}"
+        )
+        return _empty_results()
 
     try:
-        repo.git.checkout(target_hex)
-        repo_dir = Path(repo.working_dir)
+        mm_output = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        log.warning(f"Failed to parse multimetric JSON output: {e}")
+        return _empty_results()
 
-        # Collect all non-binary files
-        files: list[str] = []
-        for fp in repo_dir.rglob("*"):
-            if fp.is_file() and ".git" not in fp.parts:
-                try:
-                    fp.read_text(encoding="utf-8")
-                    files.append(str(fp))
-                except (UnicodeDecodeError, PermissionError):
-                    continue
+    # Collect metrics for programming files only
+    programming_file_metrics: list[dict] = []
 
-        if not files:
-            return _empty_results()
+    files_data = mm_output.get("files", {})
+    for filepath, file_data in files_data.items():
+        if get_linguist_file_type(filepath) == FileTypes.programming.value:
+            programming_file_metrics.append(_extract_file_metrics(file_data))
 
-        # Run multimetric on all files.
-        # Like pygount/complexity, this scans every file's content and can be
-        # pathologically slow on large repos -- bound it so a stuck subprocess
-        # can't silently consume the whole outer analyze_timeout_seconds budget.
-        multimetric_timeout_seconds = 90
-        try:
-            result = subprocess.run(
-                ["multimetric", *files],
-                capture_output=True,
-                text=True,
-                timeout=multimetric_timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            log.warning(
-                f"multimetric exceeded {multimetric_timeout_seconds}s timeout "
-                f"for repo at {repo_dir}."
-            )
-            return _empty_results()
-
-        if result.returncode != 0:
-            log.warning(
-                f"multimetric failed with return code {result.returncode}. "
-                f"stderr: {result.stderr.strip()}"
-            )
-            return _empty_results()
-
-        try:
-            mm_output = json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            log.warning(f"Failed to parse multimetric JSON output: {e}")
-            return _empty_results()
-
-        # Collect metrics for programming files only
-        programming_file_metrics: list[dict] = []
-
-        files_data = mm_output.get("files", {})
-        for filepath, file_data in files_data.items():
-            if get_linguist_file_type(filepath) == FileTypes.programming.value:
-                programming_file_metrics.append(_extract_file_metrics(file_data))
-
-        return StaticAnalysisResults(**_aggregate_metrics(programming_file_metrics))
-
-    finally:
-        repo.git.checkout(original_ref)
+    return StaticAnalysisResults(**_aggregate_metrics(programming_file_metrics))

@@ -4,16 +4,18 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import date, datetime
 from pathlib import Path
-from typing import Literal
 
-import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
 from .constants import FileTypes
-from .utils import get_commit_hash_for_target_datetime, get_linguist_file_type
+from .utils import (
+    AnalysisTimeoutError,
+    Deadline,
+    checked_subprocess_timeout,
+    get_linguist_file_type,
+)
 
 ###############################################################################
 
@@ -42,9 +44,7 @@ class SLOCResults(DataClassJsonMixin):
 
 def compute_sloc_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
+    deadline: Deadline | None = None,
 ) -> SLOCResults:
     # Get Repo object from path if necessary
     if isinstance(repo_path, Repo):
@@ -52,35 +52,15 @@ def compute_sloc_metrics(  # noqa: C901
     else:
         repo = Repo(repo_path)
 
-    # Get the latest commit hexsha for the target datetime
-    target_hex = get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
-        target_datetime=target_datetime,
-        datetime_col=datetime_col,
-    )
-
-    # Save the original HEAD ref to restore later
     try:
-        original_ref = repo.active_branch.name
-    except TypeError:
-        # Detached HEAD state - save the commit hash
-        original_ref = repo.head.commit.hexsha
-
-    # Try to checkout the repo to that commit
-    try:
-        # Checkout the repo to the latest commit datetime
-        repo.git.checkout(target_hex)
-
         # Get repo_dir from repo
         repo_dir = repo.working_dir
 
         # Run cloc on the repo.
         # pygount can be pathologically slow (observed: indefinite hang) on very
         # large plain-text/data files, so bound it -- otherwise a single stuck
-        # subprocess silently consumes the whole outer analyze_timeout_seconds
-        # budget and produces a blank ("") error message once that outer timeout
-        # fires.
-        pygount_timeout_seconds = 60
+        # subprocess silently consumes the whole outer analyze deadline.
+        pygount_timeout_seconds = checked_subprocess_timeout(deadline, 60)
         try:
             pygount_output = subprocess.run(
                 [
@@ -178,6 +158,9 @@ def compute_sloc_metrics(  # noqa: C901
             ),
         )
 
+    except AnalysisTimeoutError:
+        raise
+
     except Exception:
         return SLOCResults(
             total_lines_of_code=None,
@@ -200,10 +183,6 @@ def compute_sloc_metrics(  # noqa: C901
             unknown_code_to_comment_ratio=None,
         )
 
-    finally:
-        # Checkout back to original ref
-        repo.git.checkout(original_ref)
-
 
 @dataclass
 class RepoTagMetrics(DataClassJsonMixin):
@@ -214,9 +193,6 @@ class RepoTagMetrics(DataClassJsonMixin):
 
 def compute_tag_metrics(
     repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-    target_datetime: str | date | datetime | None = None,
-    datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
 ) -> RepoTagMetrics:
     # Get Repo object from path if necessary
     if isinstance(repo_path, Repo):
@@ -224,50 +200,27 @@ def compute_tag_metrics(
     else:
         repo = Repo(repo_path)
 
-    # Get the latest commit hexsha for the target datetime
-    target_hex = get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
-        target_datetime=target_datetime,
-        datetime_col=datetime_col,
+    # Get all tags
+    tags = repo.tags
+
+    # Construct semver regex
+    # Direct from https://semver.org/
+    # Only addition was "(v)?" to allow for "v" prefix
+    semver_regex = re.compile(
+        r"^(v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
     )
 
-    # Save the original HEAD ref to restore later
-    try:
-        original_ref = repo.active_branch.name
-    except TypeError:
-        # Detached HEAD state - save the commit hash
-        original_ref = repo.head.commit.hexsha
+    # Count tags
+    semver_tags_count = 0
+    non_semver_tags_count = 0
+    for tag in tags:
+        if semver_regex.match(tag.name):
+            semver_tags_count += 1
+        else:
+            non_semver_tags_count += 1
 
-    # Try to checkout the repo to that commit
-    try:
-        # Checkout the repo to the latest commit datetime
-        repo.git.checkout(target_hex)
-
-        # Get all tags
-        tags = repo.tags
-
-        # Construct semver regex
-        # Direct from https://semver.org/
-        # Only addition was "(v)?" to allow for "v" prefix
-        semver_regex = re.compile(
-            r"^(v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
-        )
-
-        # Count tags
-        semver_tags_count = 0
-        non_semver_tags_count = 0
-        for tag in tags:
-            if semver_regex.match(tag.name):
-                semver_tags_count += 1
-            else:
-                non_semver_tags_count += 1
-
-        return RepoTagMetrics(
-            semver_tags_count=semver_tags_count,
-            non_semver_tags_count=non_semver_tags_count,
-            total_tags_count=len(tags),
-        )
-
-    finally:
-        # Checkout back to original ref
-        repo.git.checkout(original_ref)
+    return RepoTagMetrics(
+        semver_tags_count=semver_tags_count,
+        non_semver_tags_count=non_semver_tags_count,
+        total_tags_count=len(tags),
+    )

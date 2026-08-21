@@ -6,7 +6,6 @@ import traceback
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
-from functools import partial
 from itertools import cycle
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,7 +15,6 @@ import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from gh_tokens_loader import GitHubTokensCycler
 from git import Repo
-from timeout_function_decorator import timeout
 from tqdm import tqdm
 
 from . import (
@@ -103,7 +101,12 @@ def _analyze_repository(  # noqa: C901
     ai_detection_file_sample_size: int = 20,
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
+    deadline: utils.Deadline | None = None,
 ) -> dict:
+    def _check_deadline() -> None:
+        if deadline is not None:
+            deadline.check()
+
     # Get processed at datetime
     processed_at_dt = datetime.now()
 
@@ -182,6 +185,7 @@ def _analyze_repository(  # noqa: C901
 
     # Compute AI commit author metrics (uses pre-bot-filter df to catch [bot]-named agents)
     log.debug("Computing AI commit author metrics")
+    _check_deadline()
     ai_commit_author_results = ai_detection.compute_ai_commit_author_metrics(
         repo_path=repo_path,
         commits_df=pre_bot_filter_commits_df,
@@ -215,6 +219,7 @@ def _analyze_repository(  # noqa: C901
     all_metrics.update(contributor_count_results.to_dict())
 
     # Compute timeseries and contributor stability metrics
+    _check_deadline()
     for period_span in period_spans:
         period_span_key = period_span.replace(" ", "_")
 
@@ -281,95 +286,96 @@ def _analyze_repository(  # noqa: C901
 
         all_metrics.update(contributor_distribution_metrics.to_dict())
 
-    # Compute repo linter metrics
-    if compute_repo_linter_metrics:
-        log.debug("Computing repo linter metrics")
-        repo_linter_results = documentation.process_with_repo_linter(
-            repo_path=repo_path,
-            commits_df=commits_df,
-            target_datetime=end_datetime,
-            datetime_col=datetime_col,
-        )
-
-        all_metrics.update(repo_linter_results.to_dict())
-
-    # Compute SLOC metrics
-    if compute_sloc_metrics:
-        log.debug("Computing SLOC metrics")
-        sloc_results = source.compute_sloc_metrics(
-            repo_path=repo_path,
-            commits_df=commits_df,
-            target_datetime=end_datetime,
-            datetime_col=datetime_col,
-        )
-
-        all_metrics.update(sloc_results.to_dict())
-
-    # Compute tag metrics
-    if compute_tag_metrics:
-        log.debug("Computing tag metrics")
-        tag_metrics = source.compute_tag_metrics(
-            repo_path=repo_path,
-            commits_df=commits_df,
-            target_datetime=end_datetime,
-            datetime_col=datetime_col,
-        )
-
-        all_metrics.update(tag_metrics.to_dict())
-
-    # Compute complexity metrics
-    if compute_complexity_metrics:
-        log.debug("Computing complexity metrics")
-        complexity_results = complexity.compute_complexity_metrics(
-            repo_path=repo_path,
-            commits_df=commits_df,
-            target_datetime=end_datetime,
-            datetime_col=datetime_col,
-            install_complexity_if_missing=install_complexity_if_missing,
-        )
-
-        all_metrics.update(complexity_results.to_dict())
-
-    # Compute static analysis metrics
-    if compute_static_analysis_metrics:
-        log.debug("Computing static analysis metrics")
-        static_analysis_results = static_analysis.compute_static_analysis_metrics(
-            repo_path=repo_path,
-            commits_df=commits_df,
-            target_datetime=end_datetime,
-            datetime_col=datetime_col,
-        )
-
-        all_metrics.update(static_analysis_results.to_dict())
-
-    # Compute AI detection metrics
-    if compute_ai_detection_metrics:
-        log.debug("Computing AI detection metrics")
-        ai_detection_results = ai_detection.compute_ai_detection_metrics(
-            repo_path=repo_path,
-            commits_df=commits_df,
-            target_datetime=end_datetime,
-            datetime_col=datetime_col,
-            ai_detection_model_combos=ai_detection_model_combos,
-            loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
-            ai_detection_result_cache=ai_detection_result_cache,
-            ai_detection_sampling_seed=ai_detection_sampling_seed,
-            ai_detection_function_sample_size=ai_detection_function_sample_size,
-            ai_detection_file_sample_size=ai_detection_file_sample_size,
-            hf_token=hf_token,
-        )
-
-        all_metrics.update(ai_detection_results.to_dict())
-
-    # Compute AI agent config metrics
-    log.debug("Computing AI agent config metrics")
-    ai_agent_config_results = ai_detection.compute_ai_agent_config_metrics(
-        repo_path=repo_path,
+    # Every point-in-time metric family below reads the repository's file tree at the
+    # target commit. Give this call its own detached worktree rather than checking that
+    # commit out in the shared clone, so concurrent calls against the same clone can
+    # never observe or clobber each other's working tree.
+    target_hex = utils.get_commit_hash_for_target_datetime(
         commits_df=commits_df,
         target_datetime=end_datetime,
         datetime_col=datetime_col,
     )
-    all_metrics.update(ai_agent_config_results.to_dict())
+
+    _check_deadline()
+    with utils.worktree_at_commit(parsed_repo.repo, target_hex) as worktree_repo:
+        # Compute repo linter metrics
+        if compute_repo_linter_metrics:
+            log.debug("Computing repo linter metrics")
+            repo_linter_results = documentation.process_with_repo_linter(
+                repo_path=worktree_repo,
+            )
+
+            all_metrics.update(repo_linter_results.to_dict())
+
+        # Compute SLOC metrics
+        if compute_sloc_metrics:
+            log.debug("Computing SLOC metrics")
+            _check_deadline()
+            sloc_results = source.compute_sloc_metrics(
+                repo_path=worktree_repo,
+                deadline=deadline,
+            )
+
+            all_metrics.update(sloc_results.to_dict())
+
+        # Compute tag metrics
+        if compute_tag_metrics:
+            log.debug("Computing tag metrics")
+            _check_deadline()
+            tag_metrics = source.compute_tag_metrics(
+                repo_path=worktree_repo,
+            )
+
+            all_metrics.update(tag_metrics.to_dict())
+
+        # Compute complexity metrics
+        if compute_complexity_metrics:
+            log.debug("Computing complexity metrics")
+            _check_deadline()
+            complexity_results = complexity.compute_complexity_metrics(
+                repo_path=worktree_repo,
+                install_complexity_if_missing=install_complexity_if_missing,
+                deadline=deadline,
+            )
+
+            all_metrics.update(complexity_results.to_dict())
+
+        # Compute static analysis metrics
+        if compute_static_analysis_metrics:
+            log.debug("Computing static analysis metrics")
+            _check_deadline()
+            static_analysis_results = static_analysis.compute_static_analysis_metrics(
+                repo_path=worktree_repo,
+                deadline=deadline,
+            )
+
+            all_metrics.update(static_analysis_results.to_dict())
+
+        # Compute AI detection metrics
+        if compute_ai_detection_metrics:
+            log.debug("Computing AI detection metrics")
+            _check_deadline()
+            ai_detection_results = ai_detection.compute_ai_detection_metrics(
+                repo_path=worktree_repo,
+                ai_detection_model_combos=ai_detection_model_combos,
+                loaded_ai_detection_clf_models=loaded_ai_detection_clf_models,
+                ai_detection_result_cache=ai_detection_result_cache,
+                ai_detection_sampling_seed=ai_detection_sampling_seed,
+                ai_detection_function_sample_size=ai_detection_function_sample_size,
+                ai_detection_file_sample_size=ai_detection_file_sample_size,
+                hf_token=hf_token,
+                deadline=deadline,
+            )
+
+            all_metrics.update(ai_detection_results.to_dict())
+
+        # Compute AI agent config metrics
+        log.debug("Computing AI agent config metrics")
+        _check_deadline()
+        ai_agent_config_results = ai_detection.compute_ai_agent_config_metrics(
+            repo_path=worktree_repo,
+        )
+        all_metrics.update(ai_agent_config_results.to_dict())
 
     # Compute platform metrics
     if compute_platform_metrics:
@@ -458,22 +464,18 @@ def analyze_repository(
     analyze_timeout_seconds: int = 600,
     install_complexity_if_missing: bool = True,
 ) -> dict | TrackedErrorResult:
-    # Wrap private analyze function with timeout.
-    # timeout_function_decorator's `timeout` raises `exception_to_raise()` (called
-    # with no arguments) when the wrapped call exceeds `timeout_duration`. The
-    # default `exception_to_raise` is bare `TimeoutError`, whose `str()` is empty --
-    # that produced silent, message-less failures downstream (`err=""`). Use a
-    # partial so the raised exception always carries a real message.
-    timeout_exception = partial(
-        TimeoutError,
-        f"Analysis exceeded {analyze_timeout_seconds}s timeout",
-    )
+    # Cooperative deadline rather than a thread-based timeout decorator: the decorator
+    # ran the analysis on a daemon thread and, on expiry, only stopped waiting for it --
+    # the work kept running, and its `finally` blocks fired later against shared state.
+    # A deadline checked between metric families raises on the calling thread instead,
+    # so unwinding completes before `analyze_repository` returns and no orphan survives.
+    deadline = utils.Deadline(analyze_timeout_seconds)
 
-    @timeout(analyze_timeout_seconds, exception_to_raise=timeout_exception)  # type: ignore
     def _analyze_repository_with_timeout(
         **kwargs: Any,
     ) -> dict:
         return _analyze_repository(
+            deadline=deadline,
             **kwargs,
         )
 

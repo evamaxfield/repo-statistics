@@ -1,15 +1,19 @@
 #!/usr/bin/env python
 
 import re
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from numbers import Number
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
 import polars as pl
-from git import Repo
+from git import GitCommandError, Repo
 
 from . import constants
 from .data import FILE_FORMATS_TO_DTYPE_DF
@@ -364,6 +368,61 @@ def get_commit_hash_for_target_datetime(
         "commit_hash"
     ][0]
     return latest_commit_hexsha
+
+
+class AnalysisTimeoutError(TimeoutError):
+    """Raised when an analysis exceeds its cooperative deadline."""
+
+
+class Deadline:
+    """A wall-clock budget checked cooperatively at natural checkpoints."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        self.timeout_seconds = timeout_seconds
+        self._expires_at = time.monotonic() + timeout_seconds
+
+    def remaining(self) -> float:
+        return self._expires_at - time.monotonic()
+
+    def check(self) -> None:
+        if self.remaining() <= 0:
+            raise AnalysisTimeoutError(
+                f"Analysis exceeded {self.timeout_seconds}s timeout"
+            )
+
+    def subprocess_timeout(self, cap_seconds: float) -> float:
+        """Bound a subprocess so it cannot outlive the remaining analysis budget."""
+        self.check()
+        return min(self.remaining(), cap_seconds)
+
+
+def checked_subprocess_timeout(deadline: "Deadline | None", cap_seconds: float) -> float:
+    if deadline is None:
+        return cap_seconds
+    return deadline.subprocess_timeout(cap_seconds)
+
+
+@contextmanager
+def worktree_at_commit(repo: Repo, commit_hex: str) -> Iterator[Repo]:
+    """Yield a private, detached worktree of `repo` checked out at `commit_hex`.
+
+    Every caller gets its own working directory backed by the shared clone's object
+    database, so concurrent (or orphaned) analyses can never mutate each other's tree.
+    """
+    with TemporaryDirectory(prefix="repo-statistics-worktree-") as tmpdir:
+        worktree_dir = str(Path(tmpdir) / "tree")
+        repo.git.worktree("add", "--detach", "-q", worktree_dir, commit_hex)
+        try:
+            yield Repo(worktree_dir)
+        finally:
+            try:
+                repo.git.worktree("remove", "--force", worktree_dir)
+            except GitCommandError:
+                pass
+            try:
+                repo.git.worktree("prune")
+            except GitCommandError:
+                pass
 
 
 @dataclass
