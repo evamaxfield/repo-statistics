@@ -73,6 +73,13 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 _AI_DETECTION_CANDIDATE_FILE_COUNT = 100  # K
 # Caps per-forward-pass GPU memory when a batch of cache-miss texts is inferred at once.
 _AI_DETECTION_INFERENCE_BATCH_SIZE = 16
+# Minimum line counts before a function/file is eligible for the sampling pool at all --
+# below these, there isn't enough signal to classify with confidence (a one-line getter
+# or a near-empty file is noise). Applied before random sampling, not after. Set to the
+# 5th percentile of line counts across the training datasets (paigsf/codet-m4 for
+# functions, codemirage for files) so the inference-time floor matches training reality.
+_AI_DETECTION_MIN_FUNCTION_LINE_COUNT = 3
+_AI_DETECTION_MIN_FILE_LINE_COUNT = 50
 
 ###############################################################################
 
@@ -441,9 +448,13 @@ def compute_ai_detection_metrics(  # noqa: C901
                 sampled_files = rng.sample(core_files, file_sample_size)
                 for f in sampled_files:
                     try:
-                        file_texts.append(f.read_text())
+                        text = f.read_text()
                     except (OSError, UnicodeDecodeError) as e:
                         print(f"Failed to read {f} for file-level AI detection: {e}")
+                        continue
+                    if len(text.splitlines()) < _AI_DETECTION_MIN_FILE_LINE_COUNT:
+                        continue
+                    file_texts.append(text)
             files_sampled_count = len(file_texts)
 
             # Function-granularity sampling: bounded two-stage funnel. Sample K
@@ -463,9 +474,15 @@ def compute_ai_detection_metrics(  # noqa: C901
                     if deadline is not None:
                         deadline.check()
                     try:
-                        pooled_functions.extend(parse_python_source_file(f).values())
+                        parsed_functions = parse_python_source_file(f).values()
                     except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as e:
                         print(f"Failed to parse {f} for function-level AI detection: {e}")
+                        continue
+                    pooled_functions.extend(
+                        text
+                        for text in parsed_functions
+                        if len(text.splitlines()) >= _AI_DETECTION_MIN_FUNCTION_LINE_COUNT
+                    )
                 functions_pooled_count = len(pooled_functions)
 
                 function_sample_size = min(
