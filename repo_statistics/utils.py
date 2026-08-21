@@ -382,13 +382,13 @@ class Deadline:
         self._expires_at = time.monotonic() + timeout_seconds
 
     def remaining(self) -> float:
+        """Seconds left before the deadline, negative if already past."""
         return self._expires_at - time.monotonic()
 
     def check(self) -> None:
+        """Raise `AnalysisTimeoutError` if the deadline has passed."""
         if self.remaining() <= 0:
-            raise AnalysisTimeoutError(
-                f"Analysis exceeded {self.timeout_seconds}s timeout"
-            )
+            raise AnalysisTimeoutError(f"Analysis exceeded {self.timeout_seconds}s timeout")
 
     def subprocess_timeout(self, cap_seconds: float) -> float:
         """Bound a subprocess so it cannot outlive the remaining analysis budget."""

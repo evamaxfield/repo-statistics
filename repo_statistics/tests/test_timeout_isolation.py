@@ -91,9 +91,7 @@ def test_orphaned_analysis_cannot_corrupt_a_concurrent_call(
             seen["orphan"] = marker
             orphan_started.set()
             orphan_may_finish.wait(timeout=30)
-            seen["orphan_after_wait"] = (
-                Path(repo_path.working_dir) / "marker.txt"
-            ).read_text()
+            seen["orphan_after_wait"] = (Path(repo_path.working_dir) / "marker.txt").read_text()
         else:
             seen["second"] = marker
         return _StubResults(documentation_checks_passed_count=0)
@@ -168,9 +166,7 @@ def test_concurrent_analyses_each_measure_their_own_commit(
         current_timepoint.value = timepoint
         results[idx] = _analyze(shared_clone, timepoint)
 
-    threads = [
-        threading.Thread(target=run, args=(idx, tp)) for idx, tp in enumerate(schedule)
-    ]
+    threads = [threading.Thread(target=run, args=(idx, tp)) for idx, tp in enumerate(schedule)]
     for thread in threads:
         thread.start()
     for thread in threads:
