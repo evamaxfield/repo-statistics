@@ -120,9 +120,7 @@ def _analyze_repository(  # noqa: C901
 
     # A repo needs at least one commit to exist at all
     if len(commits_df) == 0:
-        raise ValueError(
-            f"Repository {parsed_repo.owner}/{parsed_repo.name} has no commits."
-        )
+        raise ValueError(f"Repository {parsed_repo.owner}/{parsed_repo.name} has no commits.")
 
     # Parse and filter changes to datetime range
     commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
