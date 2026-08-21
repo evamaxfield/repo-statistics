@@ -259,8 +259,8 @@ def _compute_single_file_subset_contributor_distribution(
         .to_list()
     )
 
-    # Handle single contributor case
-    if len(files_per_contributor_vector) == 1:
+    # Handle empty or single-contributor case (undefined distribution either way)
+    if len(files_per_contributor_vector) <= 1:
         files_per_contributor_entropy = np.nan
     else:
         # Convert to probabilities
@@ -269,8 +269,8 @@ def _compute_single_file_subset_contributor_distribution(
         )
         files_per_contributor_entropy = entropy(files_per_contributor_vector_as_prob, base=2)
 
-    # Handle single file case
-    if len(contributors_per_file_vector) == 1:
+    # Handle empty or single-file case (undefined distribution either way)
+    if len(contributors_per_file_vector) <= 1:
         contributors_per_file_entropy = np.nan
     else:
         # Convert to probabilities

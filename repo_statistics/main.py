@@ -118,10 +118,10 @@ def _analyze_repository(  # noqa: C901
     commits_df = parsed_commit_results.commit_summaries
     per_file_commit_deltas_df = parsed_commit_results.per_file_commit_deltas
 
-    # If less than 3 commits, return None
-    if len(commits_df) < 3:
+    # A repo needs at least one commit to exist at all
+    if len(commits_df) == 0:
         raise ValueError(
-            f"Repository {parsed_repo.owner}/{parsed_repo.name} has less than 3 commits."
+            f"Repository {parsed_repo.owner}/{parsed_repo.name} has no commits."
         )
 
     # Parse and filter changes to datetime range
@@ -139,9 +139,9 @@ def _analyze_repository(  # noqa: C901
     )
 
     # Post-filter minimum commits check
-    if len(commits_df) < 3:
+    if len(commits_df) == 0:
         raise ValueError(
-            f"Repository {parsed_repo.owner}/{parsed_repo.name} has less than 3 commits "
+            f"Repository {parsed_repo.owner}/{parsed_repo.name} has no commits "
             f"in the specified datetime range ({start_datetime_dt} to {end_datetime_dt})."
         )
 
