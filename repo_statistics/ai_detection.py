@@ -59,17 +59,13 @@ _EXCLUDE_TEST_FILENAME_PATTERNS = ("test_*", "*_test", "test-*")
 
 ###############################################################################
 
-# Sampling budgets for the fixed-budget stratified-random AI-detection sampling
-# design. See `[[2026-08-20-ai-detection-at-scale-classification-plan]]` (Eva's
-# original locked-in numbers, 2026-08-20) for why this shape was chosen. Two-stage
-# funnel for function-granularity combos: sample _AI_DETECTION_CANDIDATE_FILE_COUNT
-# files first (or all, if fewer), AST-parse only those to pool functions, then
+# Fixed-budget stratified-random AI-detection sampling. Two-stage funnel for
+# function-granularity combos: sample _AI_DETECTION_CANDIDATE_FILE_COUNT files
+# first (or all, if fewer), AST-parse only those to pool functions, then
 # sample N functions from that pool. File-granularity combos sample N files
 # directly, single-stage, no parsing needed. K (the candidate-file pool for the
-# function funnel) stays a fixed internal implementation constant -- Eva asked for
-# "the sample size" (N) to be configurable, not K. N itself is now a caller-supplied
-# parameter on compute_ai_detection_metrics (default 100 per Eva's 2026-08-20
-# instruction, superseding the original N=50/N=20 defaults from the plan above).
+# function funnel) is a fixed internal constant; N is a caller-supplied
+# parameter on compute_ai_detection_metrics (default 100).
 _AI_DETECTION_CANDIDATE_FILE_COUNT = 100  # K
 # Caps per-forward-pass GPU memory when a batch of cache-miss texts is inferred at once.
 _AI_DETECTION_INFERENCE_BATCH_SIZE = 16
@@ -295,10 +291,9 @@ def compute_ai_detection_metrics(  # noqa: C901
     ai_detection_sampling_seed: int | None = None,
     # N -- how many functions/files, respectively, to sample per repo-year for
     # function-granularity vs file-granularity combos. Two separate params since the
-    # code already distinguishes the two granularities and they may legitimately want
-    # different budgets later. Defaults match the original 2026-08-20 sampling-redesign
-    # values (Eva's later "sample size, default 100" instruction referred to the number
-    # of repos to process, not this per-repo function/file budget).
+    # code already distinguishes the two granularities and may want different
+    # budgets. Not to be confused with compute_ai_detection_metrics' unrelated
+    # "sample size" param, which controls the number of repos to process.
     ai_detection_function_sample_size: int = 50,
     ai_detection_file_sample_size: int = 20,
     deadline: Deadline | None = None,
