@@ -81,6 +81,16 @@ _AI_DETECTION_INFERENCE_BATCH_SIZE = 16
 _AI_DETECTION_MIN_FUNCTION_LINE_COUNT = 3
 _AI_DETECTION_MIN_FILE_LINE_COUNT = 50
 
+# Default combo set for compute_ai_detection_metrics / analyze_repository /
+# analyze_repositories -- a tuple, not a list, so it's safe to reference directly as a
+# default value (ruff B006 flags mutable list/dict defaults since they're shared across
+# calls); each call site converts it to a real list before use, since downstream
+# resolve_ai_detection_model_combos() requires isinstance(combos, list).
+DEFAULT_AI_DETECTION_MODEL_COMBOS: tuple[str, ...] = (
+    "modern-bert-combined",
+    "modern-bert-aidev-pop",
+)
+
 ###############################################################################
 
 
@@ -272,10 +282,7 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
 
 def compute_ai_detection_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
-    ai_detection_model_combos: "str | list[str]" = [
-        "modern-bert-combined",
-        "modern-bert-aidev-pop",
-    ],
+    ai_detection_model_combos: "str | list[str] | None" = None,
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
     ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,
@@ -296,6 +303,9 @@ def compute_ai_detection_metrics(  # noqa: C901
     ai_detection_file_sample_size: int = 20,
     deadline: Deadline | None = None,
 ) -> DataClassJsonMixin:
+    if ai_detection_model_combos is None:
+        ai_detection_model_combos = list(DEFAULT_AI_DETECTION_MODEL_COMBOS)
+
     try:
         import numpy as np
         from nb_to_src import convert_directory
