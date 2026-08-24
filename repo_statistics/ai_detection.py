@@ -84,19 +84,43 @@ _AI_DETECTION_MIN_FILE_LINE_COUNT = 50
 ###############################################################################
 
 
-# AI-detection combo registry, mirroring sci_soft_models.ai_detection_clf.constants.
-# Duplicated (not imported) deliberately: sci-soft-models is an optional dependency
-# (`repo-statistics[ai]`) loaded lazily inside compute_ai_detection_metrics, so this
-# module's dataclass generation at import time can't depend on it being installed.
-_AI_DETECTION_BASE_MODELS = ["modern-bert", "codebert", "graphcodebert"]
-_AI_DETECTION_DATASET_GRANULARITY: dict[str, Literal["function", "file"]] = {
-    # "script" (aigcodeset) is stats-shape-equivalent to "function": one result per item.
-    "paigsf": "function",
-    "aigcodeset": "function",
-    "codemirage": "file",
-    "codet-m4": "function",
-    "combined": "file",
-}
+# AI-detection combo registry. Pulled live from sci_soft_models.ai_detection_clf.constants
+# (the source of truth) when that optional dependency (`repo-statistics[ai]`) is installed,
+# so a new dataset/model added there needs no hand-sync here. Falls back to a hardcoded
+# mirror when the extra isn't installed, since this module's dataclass generation runs at
+# import time and repo_statistics.main imports ai_detection unconditionally -- `import
+# repo_statistics` must keep working without the extra. A combo added on the sci-soft-models
+# side won't resolve via the fallback until it's copied down, but an environment lacking the
+# extra can't load or run the model anyway, so that's a soft staleness, not a correctness gap.
+_Granularity = Literal["function", "file"]
+try:
+    from sci_soft_models.ai_detection_clf.constants import (  # type: ignore[import-untyped]
+        AI_DETECTION_BASE_MODELS as _AI_DETECTION_BASE_MODELS,
+    )
+    from sci_soft_models.ai_detection_clf.constants import (  # type: ignore[import-untyped]
+        DATASET_CONFIGS as _SCI_SOFT_MODELS_DATASET_CONFIGS,
+    )
+
+    _AI_DETECTION_DATASET_GRANULARITY: dict[str, _Granularity] = {
+        # "script" (aigcodeset) is stats-shape-equivalent to "function": one result per item.
+        dataset: cast(
+            "_Granularity",
+            "function" if config.granularity in ("function", "script") else "file",
+        )
+        for dataset, config in _SCI_SOFT_MODELS_DATASET_CONFIGS.items()
+        if not config.eval_only
+    }
+except ImportError:
+    _AI_DETECTION_BASE_MODELS = ["modern-bert", "codebert", "graphcodebert"]
+    _AI_DETECTION_DATASET_GRANULARITY = {
+        "paigsf": "function",
+        "aigcodeset": "function",
+        "codemirage": "file",
+        "codet-m4": "function",
+        "combined": "file",
+        "swe-chat": "function",
+        "aidev-pop": "function",
+    }
 
 
 def _ai_detection_stat_names(unit: Literal["function", "file"]) -> tuple[str, ...]:
@@ -248,7 +272,10 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
 
 def compute_ai_detection_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
-    ai_detection_model_combos: "str | list[str]" = "ModernBERT",
+    ai_detection_model_combos: "str | list[str]" = [
+        "modern-bert-combined",
+        "modern-bert-aidev-pop",
+    ],
     loaded_ai_detection_clf_models: "dict | None" = None,
     hf_token: str | None = None,
     ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,

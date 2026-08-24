@@ -89,7 +89,10 @@ def _analyze_repository(  # noqa: C901
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
     compute_ai_detection_metrics: bool = False,
-    ai_detection_model_combos: "str | list[str]" = "ModernBERT",
+    ai_detection_model_combos: "str | list[str]" = [
+        "modern-bert-combined",
+        "modern-bert-aidev-pop",
+    ],
     loaded_ai_detection_clf_models: "dict | None" = None,
     ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,
     # Same seed + same candidate file/function population at call time -> same sample.
@@ -447,7 +450,10 @@ def analyze_repository(
     compute_complexity_metrics: bool = True,
     compute_static_analysis_metrics: bool = True,
     compute_ai_detection_metrics: bool = False,
-    ai_detection_model_combos: "str | list[str]" = "ModernBERT",
+    ai_detection_model_combos: "str | list[str]" = [
+        "modern-bert-combined",
+        "modern-bert-aidev-pop",
+    ],
     loaded_ai_detection_clf_models: "dict | None" = None,
     ai_detection_result_cache: dict[str, dict[str, dict]] | None = None,
     # Same seed + same candidate file/function population at call time -> same sample.
