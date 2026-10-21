@@ -184,8 +184,9 @@ def compute_static_analysis_metrics(  # noqa: C901
     # can't silently consume the whole outer analyze deadline.
     multimetric_timeout_seconds = checked_subprocess_timeout(deadline, 90)
     try:
+        # multimetric's pool runs files serially, so extra jobs only add idle processes.
         result = subprocess.run(
-            ["multimetric", *files],
+            ["multimetric", "--jobs", "1", *files],
             capture_output=True,
             text=True,
             timeout=multimetric_timeout_seconds,
