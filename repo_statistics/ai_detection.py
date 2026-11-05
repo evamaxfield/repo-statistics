@@ -400,6 +400,11 @@ def compute_ai_detection_metrics(  # noqa: C901
                 miss_indices.append(i)
                 miss_texts.append(text)
 
+        # Sorting by length cuts padding; predictions don't depend on batch composition.
+        order = sorted(range(len(miss_texts)), key=lambda j: len(miss_texts[j]))
+        miss_indices = [miss_indices[j] for j in order]
+        miss_texts = [miss_texts[j] for j in order]
+
         # Chunk inference so the deadline is checked between batches rather than only
         # before an unbounded whole-sample run.
         for start in range(0, len(miss_texts), _AI_DETECTION_INFERENCE_BATCH_SIZE):
