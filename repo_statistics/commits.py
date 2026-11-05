@@ -12,7 +12,7 @@ from git import Repo
 from tqdm import tqdm
 
 from .constants import FileTypes
-from .utils import get_linguist_file_type
+from .utils import Deadline, get_linguist_file_type
 
 ###############################################################################
 
@@ -104,7 +104,10 @@ def _accumulate_file_stat(
     counters[f"{prefix}_lines_changed"] += lines_changed
 
 
-def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
+def parse_commits(
+    repo_path: str | Path | Repo,
+    deadline: Deadline | None = None,
+) -> ParsedCommitsResult:
     """
     Parse the commits in a Git repository to extract per-file commit deltas
     and per-commit summaries.
@@ -112,6 +115,7 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     Args:
         repo_path: A string or Path to a repository,
             or a GitPython Repo object representing the repository.
+        deadline: Optional analysis deadline bounding the `git log` subprocess.
 
     Returns:
         A ParsedCommitsResult object containing two Polars DataFrames:
@@ -134,20 +138,29 @@ def parse_commits(repo_path: str | Path | Repo) -> ParsedCommitsResult:
     # embedded "|" -- including the date fields, which then failed to parse).
     # NUL cannot appear in git ref/commit metadata, so it can't collide with
     # real field content the way "|" can.
-    result = subprocess.run(
-        [
-            "git",
-            "log",
-            "--format=COMMIT%x00%H%x00%an%x00%ae%x00%cn%x00%ce%x00%ai%x00%ci%x00%s",
-            "--numstat",
-            "--no-renames",
-            "HEAD",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=repo.working_dir,
-        check=True,
-    )
+    # With a deadline, a huge history can't outlive the analysis budget.
+    log_timeout = deadline.subprocess_timeout(deadline.timeout_seconds) if deadline else None
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "log",
+                "--format=COMMIT%x00%H%x00%an%x00%ae%x00%cn%x00%ce%x00%ai%x00%ci%x00%s",
+                "--numstat",
+                "--no-renames",
+                "HEAD",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=repo.working_dir,
+            check=True,
+            timeout=log_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        # The subprocess timeout equals the remaining budget, so check() raises here.
+        if deadline is not None:
+            deadline.check()
+        raise
     output = result.stdout
 
     # Init storage
