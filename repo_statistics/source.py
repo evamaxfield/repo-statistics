@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,23 @@ from .utils import (
 )
 
 ###############################################################################
+
+# The IPython plugin lexer also claims *.py and wins at random, which drops docstring comments.
+_PYGOUNT_WRAPPER = """
+import pygount.analysis, pygount.command
+from pygments.lexers import PythonLexer
+
+_guess_lexer = pygount.analysis.guess_lexer
+
+
+def guess_lexer(source_path, text):
+    lexer = _guess_lexer(source_path, text)
+    return PythonLexer() if getattr(lexer, "name", None) == "IPython" else lexer
+
+
+pygount.analysis.guess_lexer = guess_lexer
+pygount.command.main()
+"""
 
 
 @dataclass
@@ -64,7 +82,9 @@ def compute_sloc_metrics(  # noqa: C901
         try:
             pygount_output = subprocess.run(
                 [
-                    "pygount",
+                    sys.executable,
+                    "-c",
+                    _PYGOUNT_WRAPPER,
                     "--format=json",
                     repo_dir,
                 ],
