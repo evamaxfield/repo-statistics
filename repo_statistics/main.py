@@ -2,6 +2,9 @@
 
 import logging
 import os
+import signal
+import subprocess
+import tempfile
 import traceback
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -14,7 +17,7 @@ from typing import Any, Literal
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from gh_tokens_loader import GitHubTokensCycler
-from git import Repo
+from git import GitCommandError, Repo
 from tqdm import tqdm
 
 from . import (
@@ -114,7 +117,7 @@ def _analyze_repository(  # noqa: C901
     parsed_repo = utils.parse_repo_from_path_or_url(repo_path=repo_path)
 
     # Parse commits
-    parsed_commit_results = commits.parse_commits(repo_path=parsed_repo.repo)
+    parsed_commit_results = commits.parse_commits(repo_path=parsed_repo.repo, deadline=deadline)
     commits_df = parsed_commit_results.commit_summaries
     per_file_commit_deltas_df = parsed_commit_results.per_file_commit_deltas
 
@@ -407,17 +410,28 @@ def get_clone_repository_with_timeout_func(
     def clone_repository_with_timeout(
         params: CloneRepositoryParams,
     ) -> Repo:
-        # Use GitPython's native kill_after_timeout rather than the @timeout
-        # decorator: the decorator runs this synchronous clone in a daemon thread
-        # and cannot actually interrupt it, so a stalled network clone leaks a
-        # thread and the git subprocess keeps running. kill_after_timeout is
-        # routed to Git.execute, which kills the git subprocess (its process
-        # group on POSIX) on timeout and raises GitCommandError.
-        repo = Repo.clone_from(
-            params.repo_path,
-            to_path=params.to_path,
-            kill_after_timeout=timeout_seconds,
-        )
+        # GitPython ignores kill_after_timeout for clone (it runs as_process), so
+        # run git directly in its own session and SIGKILL the whole group on timeout.
+        cmd = ["git", "clone", "--quiet", str(params.repo_path), str(params.to_path)]
+        with tempfile.TemporaryFile() as stderr_file:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=stderr_file, start_new_session=True
+            )
+            try:
+                proc.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as e:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+                raise GitCommandError(
+                    cmd, f"killed after {timeout_seconds}s clone timeout"
+                ) from e
+            if proc.returncode != 0:
+                stderr_file.seek(0)
+                raise GitCommandError(
+                    cmd, proc.returncode, stderr_file.read().decode(errors="replace")
+                )
+
+        repo = Repo(params.to_path)
 
         return repo
 
