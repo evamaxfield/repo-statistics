@@ -721,6 +721,8 @@ def compute_ai_commit_author_metrics(
         ["git", "log", "--format=%H%x00%b%x00", "HEAD"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=repo.working_dir,
     )
     if result.returncode == 0:

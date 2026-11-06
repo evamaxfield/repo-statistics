@@ -152,6 +152,9 @@ def parse_commits(
             ],
             capture_output=True,
             text=True,
+            # Commit metadata and paths aren't guaranteed UTF-8.
+            encoding="utf-8",
+            errors="replace",
             cwd=repo.working_dir,
             check=True,
             timeout=log_timeout,
