@@ -257,7 +257,17 @@ class PythonDocAndNotebookResults(DataClassJsonMixin):
     notebook_lines_of_code: int | None
 
 
-def _python_docstring_and_comment_lines(text: str) -> tuple[int, int]:
+# Tokens that can sit between a header's colon and the first statement of its body.
+_BODY_PREFIX_TOKEN_TYPES = {
+    tokenize.NEWLINE,
+    tokenize.NL,
+    tokenize.INDENT,
+    tokenize.COMMENT,
+    tokenize.ENCODING,
+}
+
+
+def _ast_docstring_lines(text: str) -> int:
     docstring_lines = 0
     for node in ast.walk(ast.parse(text)):
         if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
@@ -268,12 +278,71 @@ def _python_docstring_and_comment_lines(text: str) -> tuple[int, int]:
                 and isinstance(first.value.value, str)
             ):
                 docstring_lines += (first.end_lineno or first.lineno) - first.lineno + 1
+    return docstring_lines
 
+
+def _string_statement_lines(tokens: list[tokenize.TokenInfo], start: int) -> tuple[int, int]:
+    """Lines of a str-literal statement starting at `start` (0 if none) and the next index."""
+    first = tokens[start]
+    if first.type != tokenize.STRING or first.string.lstrip("rRuU")[:1] in "bB":
+        return 0, start + 1
+    end = start + 1
+    while tokens[end].type == tokenize.STRING:
+        end += 1
+    # The string must be the whole statement, not the start of an expression.
+    after = tokens[end]
+    if (
+        after.type in (tokenize.NEWLINE, tokenize.ENDMARKER, tokenize.COMMENT)
+        or after.string == ";"
+    ):
+        return tokens[end - 1].end[0] - first.start[0] + 1, end
+    return 0, end
+
+
+def _tokenize_docstring_lines(tokens: list[tokenize.TokenInfo]) -> int:
+    """Docstring lines for source ast rejects, such as Python 2."""
+    docstring_lines = 0
+    expect_docstring = True  # the module's first statement
+    in_header = False
+    depth = 0
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        i += 1
+        if token.type in _BODY_PREFIX_TOKEN_TYPES:
+            continue
+        if expect_docstring:
+            expect_docstring = False
+            lines, end = _string_statement_lines(tokens, i - 1)
+            if lines:
+                docstring_lines += lines
+                i = end
+                continue
+        if token.type == tokenize.NAME and token.string in ("def", "class"):
+            in_header, depth = True, 0
+        elif in_header and token.type == tokenize.OP:
+            if token.string in ("(", "[", "{"):
+                depth += 1
+            elif token.string in (")", "]", "}"):
+                depth -= 1
+            elif token.string == ":" and depth == 0:
+                in_header = False
+                expect_docstring = True
+    return docstring_lines
+
+
+def _python_docstring_and_comment_lines(text: str) -> tuple[int, int]:
+    tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    # Comments come from tokenize alone, so files ast rejects still count them.
     comment_lines = {
         token.start[0]
-        for token in tokenize.generate_tokens(io.StringIO(text).readline)
+        for token in tokens
         if token.type == tokenize.COMMENT and not token.line[: token.start[1]].strip()
     }
+    try:
+        docstring_lines = _ast_docstring_lines(text)
+    except (SyntaxError, ValueError, RecursionError):
+        docstring_lines = _tokenize_docstring_lines(tokens)
     return docstring_lines, len(comment_lines)
 
 

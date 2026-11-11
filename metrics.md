@@ -230,7 +230,7 @@ Metrics detecting AI agent involvement in commits, via direct author/committer i
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
 | `ai_commit_author_{agent}_commit_count` | Commits where the author/committer identity matches an AI agent identity | Proportion of AI-authored code | Metadata |
-| `ai_commit_coauthored_{agent}_commit_count` | `Co-authored-by:` trailer lines matching an AI agent identity (a commit with several matching lines counts once per line) | AI-assisted (human-initiated) commits | Metadata |
+| `ai_commit_coauthored_{agent}_commit_count` | Commits with at least one `Co-authored-by:` trailer matching an AI agent identity (a commit counts once per agent, however many trailers match) | AI-assisted (human-initiated) commits | Metadata |
 | `ai_commit_marker_claude_code_commit_count` | Commits whose full message (subject and body) contains `Generated with [Claude Code]`, Claude Code's own commit/PR footer | AI-assisted commits that carry no matching identity | Metadata |
 | `ai_commit_marker_aider_commit_count` | Commits whose message starts with `aider: `, the prefix aider adds when it authors a commit | AI-assisted commits that carry no matching identity | Metadata |
 | `ai_commit_total_ai_associated_count` | Distinct commits associated with any AI agent (authored, co-authored or marked) | Overall AI involvement in development | Metadata |

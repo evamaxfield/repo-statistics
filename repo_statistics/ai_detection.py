@@ -1532,13 +1532,11 @@ def _get_coauthor_counts_and_hashes(
         message = chunks[i + 1].lower()
         if commit_hash not in valid_hashes:
             continue
-        for line in message.splitlines():
-            if not line.startswith("co-authored-by:"):
-                continue
-            for agent, identities in _AGENT_PATTERNS.items():
-                if any(s in line for s in identities):
-                    coauthor_counts[agent] += 1
-                    coauthor_hashes.add(commit_hash)
+        trailers = [line for line in message.splitlines() if line.startswith("co-authored-by:")]
+        for agent, identities in _AGENT_PATTERNS.items():
+            if any(s in line for line in trailers for s in identities):
+                coauthor_counts[agent] += 1
+                coauthor_hashes.add(commit_hash)
         for marker, matches in _COMMIT_MARKERS.items():
             if matches(message):
                 marker_counts[marker] += 1
