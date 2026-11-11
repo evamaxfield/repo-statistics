@@ -19,7 +19,7 @@ Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`,
 | [Code Churn Metrics](#11-code-churn-metrics) | `{period}_{filetype}_churn_lines`, `{period}_{filetype}_churn_normalized` | Metrics quantifying code volatility by measuring files with multiple changes within a period, computed per period span and file type |
 | [Code Complexity Metrics](#12-code-complexity-metrics) | `complexity_mean`, `complexity_median`, `complexity_max`, `complexity_sum`, `complexity_file_count` | Cyclomatic complexity of Python source files at the analysis end datetime |
 | [Static Analysis Metrics](#13-static-analysis-metrics) | `halstead_volume_mean`, `halstead_difficulty_mean`, `halstead_effort_mean`, `halstead_timerequired_mean`, `halstead_bugprop_mean`, `maintainability_index_mean`, `operators_sum_mean`, `operands_sum_mean`, `static_analysis_file_count` | Halstead software science metrics and maintainability index computed across Python source files at the analysis end datetime |
-| [AI Commit Author Metrics](#14-ai-commit-author-metrics) | `ai_commit_author_{agent}_commit_count`, `ai_commit_coauthored_{agent}_commit_count`, `ai_commit_total_ai_associated_count`, `ai_commit_ai_associated_proportion`, `ai_commit_any_detected` | Metrics detecting AI agent involvement in commits via author identity and co-authored-by trailers, across agents: devin, sweep, copilot, codeium, claude, cursor |
+| [AI Commit Author Metrics](#14-ai-commit-author-metrics) | `ai_commit_author_{agent}_commit_count`, `ai_commit_coauthored_{agent}_commit_count`, `ai_commit_total_ai_associated_count`, `ai_commit_ai_associated_proportion`, `ai_commit_any_detected` | Metrics detecting AI agent involvement in commits via author identity, co-authored-by trailers and commit message markers, across agents: devin, sweep, copilot, codeium, claude, cursor, jules, gemini, aider |
 | [AI Agent Configuration Metrics](#15-ai-agent-configuration-metrics) | `ai_agent_config_claude_md_exists`, `ai_agent_config_cursor_rules_exists`, `ai_agent_config_copilot_instructions_exists`, `ai_agent_config_aider_exists`, `ai_agent_config_cline_rules_exists`, `ai_agent_config_windsurf_rules_exists`, `ai_agent_config_agents_md_exists`, `ai_agent_config_any_exists` | Binary indicators of AI coding agent configuration files present in the repository at the analysis end datetime |
 | [AI Code Detection Metrics](#16-ai-code-detection-metrics) | `ai_detection_unique_files_checked`, `ai_detection_p25_ai_function_proportion`, `ai_detection_p50_ai_function_proportion`, `ai_detection_p75_ai_function_proportion`, `ai_detection_{percentile}_ai_confidence_mean`, `ai_detection_{percentile}_human_confidence_mean` | Per-function AI authorship classification scores at three complexity percentile thresholds (p25/p50/p75), measured at the analysis end datetime |
 
@@ -110,6 +110,13 @@ Metrics quantifying overall development activity and effort. Commit counts are s
 | `{filetype}_lines_of_code` | Source lines of code for this file type at analysis end datetime | Size indicator for sustainability needs | Context-dependent | [27], [28] |
 | `{filetype}_lines_of_comments` | Comment lines for this file type at analysis end datetime | Maintainability and documentation | Higher = more documented | [27], [28] |
 | `{filetype}_code_to_comment_ratio` | Code lines / comment lines for this file type | Code documentation density | Higher = more comments per line of code | [27], [28] |
+| `meta_end_commit_hash` | SHA of the commit the point-in-time metrics were measured at (latest non-bot commit in the window) | Lets audits and per-unit outputs key on the exact snapshot | Metadata | |
+| `python_lines_of_docstrings` | Lines spanned by module, class and function docstrings across all `*.py` files (via `ast`); files that fail to parse are skipped | Separates docstring documentation from `#` comments, which `{filetype}_lines_of_comments` lumps together | Higher = more documented | |
+| `python_lines_of_comments` | Full-line `#` comment lines across all `*.py` files (via `tokenize`); a line with code and a trailing comment counts as code | Inline commentary density | Higher = more documented | |
+| `notebook_file_count` | `*.ipynb` files in the repository, excluding `.ipynb_checkpoints/` | Sizes notebook-based projects, for which pygount reports no SLOC | Metadata | |
+| `notebook_lines_of_code` | Non-blank lines of code-cell source across notebooks (nbformat 4; unparsable or v3 files count as notebooks with 0 lines) | Notebook-aware size | Context-dependent | |
+
+The four `python_*` and `notebook_*` metrics are best-effort: they are all null (never partial) if the analysis is close to its deadline or on any failure, and they are only computed when `compute_sloc_metrics` is on.
 
 ## 7. Community Engagement Metrics
 
@@ -216,30 +223,43 @@ Halstead software science metrics and maintainability index, computed across Pyt
 
 ## 14. AI Commit Author Metrics
 
-Metrics detecting AI agent involvement in commits, via both direct author/committer identity matching and `Co-authored-by:` trailer scanning. Covers agents: `devin`, `sweep`, `copilot`, `codeium`, `claude`, `cursor`.
+Metrics detecting AI agent involvement in commits, via direct author/committer identity matching, `Co-authored-by:` trailer scanning, and commit message markers. Covers agents: `devin`, `sweep`, `copilot`, `codeium`, `claude`, `cursor`, `jules`, `gemini`, `aider`.
+
+**Identity-only matching.** Each agent is matched by a small set of exact identity substrings (lowercased, literal) checked against the author/committer name and email fields and against each `Co-authored-by:` line: `devin-ai-integration[bot]` (devin), `sweep-ai[bot]` (sweep), `copilot-swe-agent[bot]` (copilot), `claude[bot]` and `noreply@anthropic.com` (claude), `cursor[bot]` and `cursoragent@cursor.com` (cursor), `google-labs-jules[bot]` (jules), `gemini-cli[bot]` (gemini), `(aider)` and `aider@aider.chat` (aider). Bare name tokens such as `devin` or `claude` are deliberately not matched, since they hit real people. `codeium` has no known commit identity, so its counts are always 0. Because the matching is identity-only, these counts are lower bounds on AI involvement.
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
-| `ai_commit_author_{agent}_commit_count` | Commits where the author/committer identity matches an AI agent pattern | Proportion of AI-authored code | Metadata |
-| `ai_commit_coauthored_{agent}_commit_count` | Commits with a `Co-authored-by:` trailer matching an AI agent | AI-assisted (human-initiated) commits | Metadata |
-| `ai_commit_total_ai_associated_count` | Commits associated with any AI agent (authored or co-authored) | Overall AI involvement in development | Metadata |
+| `ai_commit_author_{agent}_commit_count` | Commits where the author/committer identity matches an AI agent identity | Proportion of AI-authored code | Metadata |
+| `ai_commit_coauthored_{agent}_commit_count` | `Co-authored-by:` trailer lines matching an AI agent identity (a commit with several matching lines counts once per line) | AI-assisted (human-initiated) commits | Metadata |
+| `ai_commit_marker_claude_code_commit_count` | Commits whose full message (subject and body) contains `Generated with [Claude Code]`, Claude Code's own commit/PR footer | AI-assisted commits that carry no matching identity | Metadata |
+| `ai_commit_marker_aider_commit_count` | Commits whose message starts with `aider: `, the prefix aider adds when it authors a commit | AI-assisted commits that carry no matching identity | Metadata |
+| `ai_commit_total_ai_associated_count` | Distinct commits associated with any AI agent (authored, co-authored or marked) | Overall AI involvement in development | Metadata |
 | `ai_commit_ai_associated_proportion` | AI-associated commits / total commits | Fraction of commits with AI involvement | Metadata |
 | `ai_commit_any_detected` | Whether any AI-associated commit was found | Boolean indicator of AI tool usage | Metadata |
 
 ## 15. AI Agent Configuration Metrics
 
-Binary indicators of AI coding agent configuration files present in the repository at the analysis end datetime.
+Binary indicators of AI coding agent configuration files present in the repository at the analysis end datetime, plus the date each was first added. Existence is checked at the root of the end-datetime checkout.
 
 | Metric | Description |
 |--------|-------------|
 | `ai_agent_config_claude_md_exists` | `CLAUDE.md` (Claude Code) configuration file present |
-| `ai_agent_config_cursor_rules_exists` | `.cursorrules` (Cursor) configuration file present |
+| `ai_agent_config_cursor_rules_exists` | `.cursorrules` or `.cursor/rules` (Cursor) present |
 | `ai_agent_config_copilot_instructions_exists` | `.github/copilot-instructions.md` (GitHub Copilot) present |
-| `ai_agent_config_aider_exists` | `.aider*` (Aider) configuration file present |
+| `ai_agent_config_aider_exists` | `.aider*` or `aider.conf.yml` (Aider) configuration file present |
 | `ai_agent_config_cline_rules_exists` | `.clinerules` (Cline) configuration file present |
 | `ai_agent_config_windsurf_rules_exists` | `.windsurfrules` (Windsurf) configuration file present |
 | `ai_agent_config_agents_md_exists` | `AGENTS.md` (generic agent instructions) present |
-| `ai_agent_config_any_exists` | Any AI agent configuration file detected |
+| `ai_agent_config_gemini_md_exists` | `GEMINI.md` (Gemini CLI) present |
+| `ai_agent_config_claude_dir_exists` | `.claude/` directory present |
+| `ai_agent_config_cursor_dir_exists` | `.cursor/` directory present |
+| `ai_agent_config_copilot_path_instructions_exists` | `.github/instructions` (GitHub Copilot path-specific instructions) present |
+| `ai_agent_config_windsurf_dir_exists` | `.windsurf/` directory present |
+| `ai_agent_config_any_exists` | Any of the above present |
+| `ai_agent_config_{family}_first_added_datetime` | ISO datetime of the earliest commit (by the analysis datetime column) at or before the analysis end that added a path equal to, under, or matching the family's pattern; null if never added. One column per `{family}` above (`claude_md`, `cursor_rules`, `copilot_instructions`, `aider`, `cline_rules`, `windsurf_rules`, `agents_md`, `gemini_md`, `claude_dir`, `cursor_dir`, `copilot_path_instructions`, `windsurf_dir`) |
+| `ai_agent_config_any_first_added_datetime` | Earliest of the family first-added datetimes |
+
+First-added datetimes are read from the unfiltered per-file history, so commits by bot accounts count, and they can be non-null while the file no longer exists at the end datetime.
 
 ## 16. AI Code Detection Metrics
 
@@ -271,6 +291,36 @@ Every dataset now produces the same shape of aggregate stats over its N-sample â
 | `ai_detection_{dataset}_{model}_human_confidence_mean` | Mean classifier confidence for human-classified items |
 | `ai_detection_{dataset}_{model}_human_confidence_std` | Std dev of classifier confidence for human-classified items |
 | `ai_detection_{dataset}_{model}_human_confidence_median` | Median classifier confidence for human-classified items |
+
+### New-code scoring (`ai_detection_new_*`)
+
+The same classifiers also score the code added between consecutive year-end snapshots, with the same cache, models and per-combo stat set. It runs after the baseline in its own time budget (`ai_detection_new_code_timeout_seconds`, default 60) and is on by default (`compute_new_code_ai_detection=True`). A failure or timeout nulls only the `ai_detection_new_*` fields and never affects the baseline columns above.
+
+**Base commit.** The base is the latest non-bot commit at or before the window start, i.e. the snapshot the previous window's row was built from; the target is `meta_end_commit_hash`. If no commit precedes the window the status is `first_year` and every other new-code field is null: the baseline columns already describe that repo-year, because all of its code is new.
+
+**Changed files.** Two git diffs between base and target (`-M`, `-w`) list added and modified `*.py` and `*.ipynb` files; pure renames, deletions and whitespace-only edits are dropped, and the same test/docs/packaging filters as the baseline apply to repo-relative paths. Modified notebooks are diffed on their converted scripts.
+
+**Units.** File-granularity combos score one pool: whole new files (`scope = new_file`) and, for modified files, the added lines in file order with hunks separated by one blank line (`scope = added_lines`). Units under the 50-line floor are dropped (the same floor as the baseline), and up to `ai_detection_file_sample_size` files are drawn from files with at least 50 added lines (all candidate notebooks, filtered after their diff). Function-granularity combos use the same funnel as the baseline over changed files: pool functions of at least 3 lines whose changed-line fraction is above 0, then sample up to `ai_detection_function_sample_size`. The changed-line fraction is the share of a function's non-blank lines that were added (1.0 in added files); it is stored, not thresholded. File-level `ai_detection_new_*_file_*` stats keep the `file` unit name even though some units are snippets. Known gaps: `-w` does not hide formatter rewraps, `-M` pairs files but not moved functions, and copies count as new code.
+
+| Metric | Description |
+|--------|-------------|
+| `ai_detection_new_status` | `ok`, `disabled`, `first_year`, `timeout`, `error`, or `repo_budget` (set by the batch pipeline when a repo's new-code budget is spent); null if the baseline found no core files |
+| `ai_detection_new_base_commit_hash` | Previous year-end SHA used as the diff base (only set when status is `ok`) |
+| `ai_detection_new_added_files_count` | Candidate files added since the base, after filters |
+| `ai_detection_new_modified_files_count` | Candidate files that gained non-whitespace lines (notebooks: approximate) |
+| `ai_detection_new_added_lines_count` | Sum of whitespace-insensitive added lines over candidate `.py` files (notebooks excluded) |
+| `ai_detection_new_file_units_pooled_count` | File-level pool size before sampling |
+| `ai_detection_new_whole_file_units_scored_count` | File-level units scored that were whole new files |
+| `ai_detection_new_snippet_units_scored_count` | File-level units scored that were added-line snippets |
+| `ai_detection_new_candidate_files_sampled_count` | Changed files drawn for the function funnel (up to 100) |
+| `ai_detection_new_functions_pooled_count` | Changed functions pooled |
+| `ai_detection_new_functions_sampled_count` | Changed functions scored |
+| `ai_detection_new_elapsed_seconds` | Wall time spent on new-code scoring for this timepoint (0 when disabled or `first_year`) |
+| `ai_detection_new_{dataset}_{model}_{stat}` | Every per-combo stat in the table above, computed over the new-code units (same names, with the `ai_detection_new_` prefix) |
+
+### Per-unit scores
+
+When a caller passes a list as `ai_detection_unit_scores` to `analyze_repository()`, every scored unit is appended to it as one row per unit and model (baseline units, plus new-code units when new-code scoring succeeds). Fields: `model` (combo key), `scope` (`snapshot`, `new_file`, `added_lines`, `changed_function`), `unit_type` (`file`, `snippet`, `function`), `file_path` (repo-relative; the converted `.py` name for notebooks), `from_notebook`, `function_name` (qualified key or null), `unit_hash` (first 16 hex characters of the sha256 of the scored text, the cache key), `line_count`, `changed_line_fraction` (changed functions only), `ai_probability` (`score` if the label is `ai`, else `1 - score`), `label`, `base_commit_hash` (new-code rows only) and `target_commit_hash` (= `meta_end_commit_hash`). The caller adds the repository and year keys.
 
 Calibration (correcting raw scores for the benchmark-to-real-world accuracy gap) is out of scope for this metric family today â€” raw scores are stored as-is, which keeps the door open for a calibration column to be added later without a rerun.
 

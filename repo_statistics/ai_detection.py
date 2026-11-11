@@ -1,24 +1,31 @@
 #!/usr/bin/env python
 
+import ast
 import hashlib
 import logging
 import os
 import random
+import re
 import shutil
 import subprocess
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, make_dataclass
+from difflib import SequenceMatcher
 from fnmatch import fnmatch
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
-from .utils import AnalysisTimeoutError, Deadline
+from .utils import AnalysisTimeoutError, Deadline, checked_subprocess_timeout
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from transformers import Pipeline
 
 ###############################################################################
@@ -174,6 +181,25 @@ def _all_ai_detection_combo_keys() -> dict[str, tuple[str, str]]:
     }
 
 
+def _ai_detection_combo_fields(prefix: str) -> list[tuple[str, type, Any]]:
+    """One field per combo x stat, named `{prefix}{dataset}_{model}_{stat}`."""
+    fields: list[tuple[str, type, Any]] = []
+    for base_model, dataset in _all_ai_detection_combo_keys().values():
+        dataset_col = _ai_detection_column_safe(dataset)
+        model_col = _ai_detection_column_safe(base_model)
+        granularity = _AI_DETECTION_DATASET_GRANULARITY[dataset]
+        stat_names = (
+            _AI_DETECTION_FUNC_STAT_NAMES
+            if granularity == "function"
+            else _AI_DETECTION_FILE_STAT_NAMES
+        )
+        stat_type = int | float | None
+        for stat_name in stat_names:
+            field_name = f"{prefix}{dataset_col}_{model_col}_{stat_name}"
+            fields.append((field_name, stat_type, field(default=None)))
+    return fields
+
+
 def _make_ai_detection_results_dataclass() -> type:
     """Build the AIDetectionResults dataclass with one field per combo x stat.
 
@@ -182,7 +208,9 @@ def _make_ai_detection_results_dataclass() -> type:
     and would only grow as more base models/datasets are added. The percentile
     dimension that used to triple every field (`p25`/`p50`/`p75`) is gone — the new
     sampling design computes one set of stats per repo-year per combo over the
-    N-sample, not three percentile-conditioned sets.
+    N-sample, not three percentile-conditioned sets. The new-code (`ai_detection_new_`)
+    set repeats the same per-combo fields for the code added since the previous
+    year-end commit.
     """
     fields: list[tuple[str, type, Any]] = [
         # Sample-auditing metadata, so downstream consumers can confirm the sampler
@@ -197,19 +225,24 @@ def _make_ai_detection_results_dataclass() -> type:
         ("ai_detection_cache_hits", int, field(default=0)),
         ("ai_detection_cache_misses", int, field(default=0)),
     ]
-    for base_model, dataset in _all_ai_detection_combo_keys().values():
-        dataset_col = _ai_detection_column_safe(dataset)
-        model_col = _ai_detection_column_safe(base_model)
-        granularity = _AI_DETECTION_DATASET_GRANULARITY[dataset]
-        stat_names = (
-            _AI_DETECTION_FUNC_STAT_NAMES
-            if granularity == "function"
-            else _AI_DETECTION_FILE_STAT_NAMES
-        )
-        stat_type = int | float | None
-        for stat_name in stat_names:
-            field_name = f"ai_detection_{dataset_col}_{model_col}_{stat_name}"
-            fields.append((field_name, stat_type, field(default=None)))
+    fields.extend(_ai_detection_combo_fields("ai_detection_"))
+
+    fields.append(("ai_detection_new_status", str | None, field(default=None)))
+    fields.append(("ai_detection_new_base_commit_hash", str | None, field(default=None)))
+    for new_count_name in (
+        "added_files_count",
+        "modified_files_count",
+        "added_lines_count",
+        "file_units_pooled_count",
+        "whole_file_units_scored_count",
+        "snippet_units_scored_count",
+        "candidate_files_sampled_count",
+        "functions_pooled_count",
+        "functions_sampled_count",
+    ):
+        fields.append((f"ai_detection_new_{new_count_name}", int | None, field(default=None)))
+    fields.append(("ai_detection_new_elapsed_seconds", float | None, field(default=None)))
+    fields.extend(_ai_detection_combo_fields("ai_detection_new_"))
 
     return make_dataclass(
         "AIDetectionResults",
@@ -230,7 +263,26 @@ class AIAgentConfigResults(DataClassJsonMixin):
     ai_agent_config_cline_rules_exists: bool
     ai_agent_config_windsurf_rules_exists: bool
     ai_agent_config_agents_md_exists: bool
+    ai_agent_config_gemini_md_exists: bool
+    ai_agent_config_claude_dir_exists: bool
+    ai_agent_config_cursor_dir_exists: bool
+    ai_agent_config_copilot_path_instructions_exists: bool
+    ai_agent_config_windsurf_dir_exists: bool
     ai_agent_config_any_exists: bool
+    # ISO datetime of the earliest commit adding the path; None if never added in history
+    ai_agent_config_claude_md_first_added_datetime: str | None
+    ai_agent_config_cursor_rules_first_added_datetime: str | None
+    ai_agent_config_copilot_instructions_first_added_datetime: str | None
+    ai_agent_config_aider_first_added_datetime: str | None
+    ai_agent_config_cline_rules_first_added_datetime: str | None
+    ai_agent_config_windsurf_rules_first_added_datetime: str | None
+    ai_agent_config_agents_md_first_added_datetime: str | None
+    ai_agent_config_gemini_md_first_added_datetime: str | None
+    ai_agent_config_claude_dir_first_added_datetime: str | None
+    ai_agent_config_cursor_dir_first_added_datetime: str | None
+    ai_agent_config_copilot_path_instructions_first_added_datetime: str | None
+    ai_agent_config_windsurf_dir_first_added_datetime: str | None
+    ai_agent_config_any_first_added_datetime: str | None
 
 
 def _empty_results() -> DataClassJsonMixin:
@@ -249,7 +301,7 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
         f
         for f in file_list
         if not any(
-            f.parents[i].name.lower() in _EXCLUDE_DIR_NAMES for i in range(len(f.parents))
+            part.lower() in _EXCLUDE_DIR_NAMES for part in f.relative_to(repo_path).parts[:-1]
         )
     ]
 
@@ -276,6 +328,529 @@ def _get_core_python_file_set(repo_path: Path) -> list[Path]:
 ###############################################################################
 
 
+# New-code scoring helpers: the code a repo gained between a base commit (the previous
+# year-end) and the target commit, split into file-level and function-level units.
+
+
+class _ChangedFile(NamedTuple):
+    """One `git diff --name-status` entry; dicts of these are keyed by the new path."""
+
+    status: str  # first letter of git's status: "A" added, "M" modified, "R" renamed
+    old_path: str
+
+    @property
+    def is_added(self) -> bool:
+        return self.status == "A"
+
+
+class _ModifiedNotebook(NamedTuple):
+    old_path: str
+    new_script_text: str  # the target-commit notebook, already converted to .py
+
+
+def _is_notebook(rel: str) -> bool:
+    return rel.endswith(".ipynb")
+
+
+def _as_script_relpath(rel: str) -> str:
+    """Map a notebook path to its converted script (`a/b.ipynb` -> `a/b.py`)."""
+    return rel[: -len(".ipynb")] + ".py" if _is_notebook(rel) else rel
+
+
+def _split_lines(text: str) -> list[str]:
+    """Split on newlines only, so line numbers match git's."""
+    lines = text.split("\n")
+    if text.endswith("\n"):
+        lines.pop()
+    return lines
+
+
+def _unit_hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def _make_unit(
+    text: str,
+    scope: str,
+    unit_type: str,
+    file_path: str,
+    from_notebook: bool,
+    function_name: str | None = None,
+    line_count: int | None = None,
+    changed_line_fraction: float | None = None,
+) -> dict:
+    """One classification unit plus the metadata written to its per-unit score rows."""
+    return {
+        "text": text,
+        "scope": scope,
+        "unit_type": unit_type,
+        "file_path": file_path,
+        "from_notebook": from_notebook,
+        "function_name": function_name,
+        "unit_hash": _unit_hash(text),
+        "line_count": len(text.splitlines()) if line_count is None else line_count,
+        "changed_line_fraction": changed_line_fraction,
+    }
+
+
+def _unit_score_rows(
+    combo_key: str,
+    units: list[dict],
+    scored: list[dict],
+    base_commit_hash: str | None,
+    target_commit_hash: str | None,
+) -> list[dict]:
+    """One row per scored unit for one combo (the per-unit side output)."""
+    return [
+        {
+            "model": combo_key,
+            "scope": unit["scope"],
+            "unit_type": unit["unit_type"],
+            "file_path": unit["file_path"],
+            "from_notebook": unit["from_notebook"],
+            "function_name": unit["function_name"],
+            "unit_hash": unit["unit_hash"],
+            "line_count": unit["line_count"],
+            "changed_line_fraction": unit["changed_line_fraction"],
+            # The classifier reports its confidence in the predicted label; store P(ai).
+            "ai_probability": (
+                result["score"] if result["label"] == "ai" else 1 - result["score"]
+            ),
+            "label": result["label"],
+            "base_commit_hash": base_commit_hash,
+            "target_commit_hash": target_commit_hash,
+        }
+        for unit, result in zip(units, scored, strict=True)
+    ]
+
+
+def _is_core_python_relpath(rel: PurePosixPath) -> bool:
+    """Repo-relative twin of `_get_core_python_file_set`'s filters."""
+    if any(part.lower() in _EXCLUDE_DIR_NAMES for part in rel.parts[:-1]):
+        return False
+    if rel.name in _EXCLUDE_PACKAGING_FILENAMES:
+        return False
+    return not any(
+        fnmatch(rel.name.lower(), pattern) for pattern in _EXCLUDE_TEST_FILENAME_PATTERNS
+    )
+
+
+def _run_git(args: list[str], cwd: Path, deadline: Deadline) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+        check=True,
+        timeout=checked_subprocess_timeout(deadline, 60),
+    )
+    return result.stdout
+
+
+def _parse_name_status(output: str) -> dict[str, _ChangedFile]:
+    """Parse `git diff --name-status -z` into {new_path: _ChangedFile}."""
+    tokens = output.split("\0")
+    parsed: dict[str, _ChangedFile] = {}
+    i = 0
+    while i < len(tokens) and tokens[i]:
+        status = tokens[i]
+        # Renames and copies carry two paths (old, then new); everything else carries one.
+        if status[0] in "RC":
+            parsed[tokens[i + 2]] = _ChangedFile(status[0], tokens[i + 1])
+            i += 3
+        else:
+            parsed[tokens[i + 1]] = _ChangedFile(status[0], tokens[i + 1])
+            i += 2
+    return parsed
+
+
+def _parse_numstat(output: str) -> dict[str, int]:
+    """Parse `git diff --numstat -z` into {new_path: added line count}."""
+    tokens = output.split("\0")
+    parsed: dict[str, int] = {}
+    i = 0
+    while i < len(tokens) and tokens[i]:
+        added, _, path = tokens[i].split("\t", 2)
+        # A rename leaves the path empty and puts the old and new paths in the next tokens.
+        if path:
+            i += 1
+        else:
+            path = tokens[i + 2]
+            i += 3
+        # Binary files report "-" instead of a count.
+        parsed[path] = int(added) if added.isdigit() else 0
+    return parsed
+
+
+_HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def _added_lines_by_file(diff_output: str) -> dict[str, set[int]]:
+    """Collect added line numbers (in the new file) per path from a `git diff -U0` patch."""
+    added_by_file: dict[str, set[int]] = {}
+    # Added-line set of the file being read; None while skipping a file.
+    current: set[int] | None = None
+    # Lines still to read in the current hunk, and the new-file number of the next added line.
+    old_left = new_left = next_new = 0
+    for line in diff_output.split("\n"):
+        if old_left > 0 and line.startswith("-"):
+            old_left -= 1
+        elif new_left > 0 and line.startswith("+"):
+            if current is not None:
+                current.add(next_new)
+            next_new += 1
+            new_left -= 1
+        elif line.startswith("\\"):
+            # "\ No newline at end of file"
+            continue
+        elif line.startswith("+++ "):
+            # Git tab-terminates header names that contain spaces.
+            name = line[4:].rstrip("\t")
+            # Quoted paths (tabs, quotes, newlines in the name) are skipped.
+            current = (
+                added_by_file.setdefault(name[2:], set()) if name.startswith("b/") else None
+            )
+        elif match := _HUNK_HEADER_RE.match(line):
+            # "@@ -a[,b] +c[,d] @@": b lines removed, d lines added from line c; counts
+            # default to 1.
+            old_left = int(match[1]) if match[1] is not None else 1
+            next_new = int(match[2])
+            new_left = int(match[3]) if match[3] is not None else 1
+    return added_by_file
+
+
+def _strip_whitespace(lines: list[str]) -> list[str]:
+    return ["".join(line.split()) for line in lines]
+
+
+def _whitespace_insensitive_added_lines(old_text: str, new_text: str) -> set[int]:
+    """Line numbers of `new_text` inserted or replaced relative to `old_text`, ignoring
+    whitespace like `git diff -w`.
+    """
+    matcher = SequenceMatcher(
+        None,
+        _strip_whitespace(_split_lines(old_text)),
+        _strip_whitespace(_split_lines(new_text)),
+        autojunk=False,
+    )
+    added: set[int] = set()
+    for tag, _, _, new_start, new_end in matcher.get_opcodes():
+        if tag in ("insert", "replace"):
+            added.update(range(new_start + 1, new_end + 1))
+    return added
+
+
+def _notebook_added_lines(
+    notebooks: dict[str, _ModifiedNotebook],
+    base_commit: str,
+    repo_dir: Path,
+    deadline: Deadline,
+) -> dict[str, set[int]]:
+    """Find added lines of modified notebooks by converting each base-commit notebook and
+    diffing the old and new scripts. Git's own diff is over notebook JSON, so unusable here.
+    """
+    added_by_file: dict[str, set[int]] = {}
+    with TemporaryDirectory() as tmpdir:
+        tmp_dir = Path(tmpdir)
+        out_dir = tmp_dir / "out"
+
+        # Write each notebook's base-commit JSON under a unique temp name.
+        old_notebook_files: dict[str, Path] = {}
+        for i, (rel, notebook) in enumerate(notebooks.items()):
+            old_file = tmp_dir / f"nb{i}.ipynb"
+            old_file.write_text(
+                _run_git(["show", f"{base_commit}:{notebook.old_path}"], repo_dir, deadline),
+                encoding="utf-8",
+            )
+            old_notebook_files[rel] = old_file
+
+        # One nbconvert call for all of them; same exporter as nb_to_src, so the old and
+        # new scripts are formatted alike.
+        subprocess.run(
+            [
+                "jupyter",
+                "nbconvert",
+                "--to",
+                "script",
+                "--output-dir",
+                str(out_dir),
+                *map(str, old_notebook_files.values()),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=checked_subprocess_timeout(deadline, 120),
+        )
+
+        for rel, old_file in old_notebook_files.items():
+            old_script = out_dir / f"{old_file.stem}.py"
+            # No .py output: the old version failed to convert or isn't a Python notebook.
+            if not old_script.exists():
+                continue
+            added_by_file[rel] = _whitespace_insensitive_added_lines(
+                old_script.read_text(), notebooks[rel].new_script_text
+            )
+    return added_by_file
+
+
+def _added_lines_text(lines: list[str], added: set[int]) -> tuple[str, int]:
+    """Join the added lines in file order, with one blank line between separate hunks.
+
+    Returns the snippet and its added-line count (separators not counted).
+    """
+    added_in_file = sorted(n for n in added if 1 <= n <= len(lines))
+    out: list[str] = []
+    previous: int | None = None
+    for number in added_in_file:
+        if previous is not None and number != previous + 1:
+            out.append("")
+        out.append(lines[number - 1])
+        previous = number
+    return "\n".join(out) + "\n", len(added_in_file)
+
+
+def _function_line_spans(text: str, name_prefix: str) -> dict[str, tuple[int, int]]:
+    """Line span per function key, mirroring sci_soft_models' function traversal."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return {}
+    spans: dict[str, tuple[int, int]] = {}
+
+    # Recurse into classes (which extend the key) and other blocks, never into function
+    # bodies, so keys match `parse_python_source_file` one-to-one.
+    def _walk(nodes: list[ast.AST], path_prefix: list[str]) -> None:
+        for node in nodes:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                key = f"{name_prefix}.{'.'.join([*path_prefix, node.name])}"
+                spans[key] = (node.lineno, node.end_lineno or node.lineno)
+            elif isinstance(node, ast.ClassDef):
+                _walk(list(ast.iter_child_nodes(node)), [*path_prefix, node.name])
+            else:
+                _walk(list(ast.iter_child_nodes(node)), path_prefix)
+
+    _walk(list(ast.iter_child_nodes(tree)), [])
+    return spans
+
+
+def _changed_line_fraction(lines: list[str], added: set[int], start: int, end: int) -> float:
+    """Share of a span's non-blank lines that were added."""
+    nonblank = [n for n in range(start, min(end, len(lines)) + 1) if lines[n - 1].strip()]
+    if not nonblank:
+        return 0.0
+    return sum(1 for n in nonblank if n in added) / len(nonblank)
+
+
+def _find_new_code_candidates(
+    base_commit: str,
+    target_commit: str,
+    repo_dir: Path,
+    deadline: Deadline,
+) -> tuple[dict[str, _ChangedFile], dict[str, int]]:
+    """Core .py/.ipynb files that gained code since the base commit, plus the numstat
+    added-line count of every changed file.
+    """
+    pathspec = ["--", "*.py", "*.ipynb"]
+    # Added, modified and renamed files, with each one's path at the base commit.
+    name_status = _parse_name_status(
+        _run_git(
+            [
+                *["diff", "--name-status", "-z", "-M", "--diff-filter=AMR"],
+                *[base_commit, target_commit, *pathspec],
+            ],
+            repo_dir,
+            deadline,
+        )
+    )
+    # Added-line counts that ignore whitespace; whitespace-only edits are left out entirely.
+    added_line_counts = _parse_numstat(
+        _run_git(
+            ["diff", "--numstat", "-z", "-M", "-w", base_commit, target_commit, *pathspec],
+            repo_dir,
+            deadline,
+        )
+    )
+
+    candidates: dict[str, _ChangedFile] = {}
+    for rel, changed in name_status.items():
+        added = added_line_counts.get(rel)
+        # Whitespace-only edits (no numstat entry) and pure renames (0 added) drop out.
+        if added is None or (not changed.is_added and added == 0):
+            continue
+        # Same test/packaging/excluded-dir filters as the snapshot, on the script path.
+        if _is_core_python_relpath(PurePosixPath(_as_script_relpath(rel))):
+            candidates[rel] = changed
+    return candidates, added_line_counts
+
+
+def _read_new_code_texts(
+    rels: list[str],
+    temp_dir: Path,
+    notebook_scripts: dict[str, Path],
+    deadline: Deadline,
+) -> tuple[dict[str, str], dict[str, Path]]:
+    """Read each file's target-commit text from the temp copy (a notebook's converted
+    script). Returns {rel: text} and {rel: script path}, skipping unreadable files.
+    """
+    texts: dict[str, str] = {}
+    script_paths: dict[str, Path] = {}
+    for rel in rels:
+        deadline.check()
+        script = notebook_scripts.get(rel) if _is_notebook(rel) else temp_dir / rel
+        # Notebooks that failed to convert or aren't Python have no .py script.
+        if script is None or script.suffix != ".py":
+            continue
+        try:
+            texts[rel] = script.read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"Failed to read {script} for new-code AI detection: {e}")
+            continue
+        script_paths[rel] = script
+    return texts, script_paths
+
+
+def _find_added_lines(
+    texts: dict[str, str],
+    candidates: dict[str, _ChangedFile],
+    base_commit: str,
+    target_commit: str,
+    repo_dir: Path,
+    deadline: Deadline,
+) -> dict[str, set[int]]:
+    """Find the added line numbers (in the target text) of each read file. Files whose
+    added lines can't be recovered are left out.
+    """
+    modified_py = [
+        rel for rel in texts if not candidates[rel].is_added and not _is_notebook(rel)
+    ]
+    modified_notebooks = {
+        rel: _ModifiedNotebook(candidates[rel].old_path, texts[rel])
+        for rel in texts
+        if not candidates[rel].is_added and _is_notebook(rel)
+    }
+
+    modified_added: dict[str, set[int]] = {}
+    # Modified .py files: one zero-context, whitespace-insensitive diff covering all of
+    # them; old paths are included so renames still pair up.
+    if modified_py:
+        diff_paths = sorted({*modified_py, *(candidates[rel].old_path for rel in modified_py)})
+        modified_added = _added_lines_by_file(
+            _run_git(
+                [
+                    *["--literal-pathspecs", "-c", "core.quotePath=false", "diff"],
+                    *["-M", "-w", "-U0", "--no-color", "--no-ext-diff"],
+                    *["--src-prefix=a/", "--dst-prefix=b/", base_commit, target_commit],
+                    *["--", *diff_paths],
+                ],
+                repo_dir,
+                deadline,
+            )
+        )
+    # Modified notebooks: diff the converted old and new scripts instead.
+    if modified_notebooks:
+        modified_added.update(
+            _notebook_added_lines(modified_notebooks, base_commit, repo_dir, deadline)
+        )
+
+    added_by_rel: dict[str, set[int]] = {}
+    for rel, text in texts.items():
+        # Every line of a new file is an added line.
+        if candidates[rel].is_added:
+            added_by_rel[rel] = set(range(1, len(_split_lines(text)) + 1))
+        elif rel in modified_added:
+            added_by_rel[rel] = modified_added[rel]
+    return added_by_rel
+
+
+def _build_file_units(
+    file_sample: list[str],
+    texts: dict[str, str],
+    candidates: dict[str, _ChangedFile],
+    added_by_rel: dict[str, set[int]],
+) -> list[dict]:
+    """File-level units: a new file's whole text, or a modified file's added lines as one
+    snippet. Units under the file-level line floor are dropped.
+    """
+    file_units: list[dict] = []
+    for rel in file_sample:
+        if rel not in added_by_rel:
+            continue
+        text = texts[rel]
+        if candidates[rel].is_added:
+            unit_text, line_count = text, len(text.splitlines())
+            scope, unit_type = "new_file", "file"
+        else:
+            unit_text, line_count = _added_lines_text(_split_lines(text), added_by_rel[rel])
+            scope, unit_type = "added_lines", "snippet"
+        if line_count < _AI_DETECTION_MIN_FILE_LINE_COUNT:
+            continue
+        file_units.append(
+            _make_unit(
+                unit_text,
+                scope,
+                unit_type,
+                _as_script_relpath(rel),
+                _is_notebook(rel),
+                line_count=line_count,
+            )
+        )
+    return file_units
+
+
+def _pool_changed_functions(
+    funnel_sample: list[str],
+    texts: dict[str, str],
+    script_paths: dict[str, Path],
+    added_by_rel: dict[str, set[int]],
+    parse_functions: Callable[[Path], dict[str, str]],
+    deadline: Deadline,
+) -> list[dict]:
+    """Function-level units: every function in the funnel files that has at least one
+    added non-blank line, tagged with its changed-line fraction.
+    """
+    pooled_functions: list[dict] = []
+    for rel in funnel_sample:
+        deadline.check()
+        if rel not in added_by_rel:
+            continue
+        script = script_paths[rel]
+        try:
+            parsed_functions = parse_functions(script)
+        except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as e:
+            print(f"Failed to parse {script} for new-code function-level AI detection: {e}")
+            continue
+        lines = _split_lines(texts[rel])
+        # The parser returns function texts only, so line spans are looked up by key.
+        spans = _function_line_spans(texts[rel], script.stem)
+        for name, function_text in parsed_functions.items():
+            span = spans.get(name)
+            if (
+                span is None
+                or len(function_text.splitlines()) < _AI_DETECTION_MIN_FUNCTION_LINE_COUNT
+            ):
+                continue
+            # Untouched functions (fraction 0) stay out; the fraction itself is stored,
+            # not thresholded.
+            fraction = _changed_line_fraction(lines, added_by_rel[rel], *span)
+            if fraction > 0:
+                pooled_functions.append(
+                    _make_unit(
+                        function_text,
+                        "changed_function",
+                        "function",
+                        _as_script_relpath(rel),
+                        _is_notebook(rel),
+                        name,
+                        changed_line_fraction=fraction,
+                    )
+                )
+    return pooled_functions
+
+
+###############################################################################
+
+
 def compute_ai_detection_metrics(  # noqa: C901
     repo_path: str | Path | Repo,
     ai_detection_model_combos: "str | list[str] | None" = None,
@@ -297,6 +872,12 @@ def compute_ai_detection_metrics(  # noqa: C901
     ai_detection_function_sample_size: int = 50,
     ai_detection_file_sample_size: int = 20,
     deadline: Deadline | None = None,
+    compute_new_code_ai_detection: bool = True,
+    ai_detection_new_code_timeout_seconds: float = 60.0,
+    # Sink for one row per scored unit and model; the caller passes a fresh list per call.
+    ai_detection_unit_scores: list[dict] | None = None,
+    new_code_base_commit: str | None = None,
+    new_code_target_commit: str | None = None,
 ) -> DataClassJsonMixin:
     if ai_detection_model_combos is None:
         ai_detection_model_combos = list(DEFAULT_AI_DETECTION_MODEL_COMBOS)
@@ -383,8 +964,14 @@ def compute_ai_detection_metrics(  # noqa: C901
     # default, so this is a behavior-neutral drop-in when no seed is passed.
     rng = random.Random(ai_detection_sampling_seed)
 
-    def _classify_batch_cached(combo_key: str, texts: list[str], clf: "Pipeline") -> list[dict]:
+    def _classify_batch_cached(
+        combo_key: str,
+        texts: list[str],
+        clf: "Pipeline",
+        batch_deadline: Deadline | None = None,
+    ) -> list[dict]:
         nonlocal cache_hits, cache_misses
+        active_deadline = batch_deadline if batch_deadline is not None else deadline
         combo_cache = cache.setdefault(combo_key, {})
         results: list[dict | None] = [None] * len(texts)
         miss_indices: list[int] = []
@@ -408,8 +995,8 @@ def compute_ai_detection_metrics(  # noqa: C901
         # Chunk inference so the deadline is checked between batches rather than only
         # before an unbounded whole-sample run.
         for start in range(0, len(miss_texts), _AI_DETECTION_INFERENCE_BATCH_SIZE):
-            if deadline is not None:
-                deadline.check()
+            if active_deadline is not None:
+                active_deadline.check()
             batch_indices = miss_indices[start : start + _AI_DETECTION_INFERENCE_BATCH_SIZE]
             batch_texts = miss_texts[start : start + _AI_DETECTION_INFERENCE_BATCH_SIZE]
             outputs = clf(batch_texts, batch_size=_AI_DETECTION_INFERENCE_BATCH_SIZE)
@@ -420,6 +1007,120 @@ def compute_ai_detection_metrics(  # noqa: C901
                 results[i] = scored
 
         return cast("list[dict]", results)
+
+    def _compute_new_code_fields(
+        new_code_deadline: Deadline,
+        repo_dir: Path,
+        temp_dir: Path,
+        notebook_scripts: dict[str, Path],
+        clf_models: dict,
+        combo_registry: dict[str, tuple[str, str]],
+        func_combo_keys: list[str],
+        file_combo_keys: list[str],
+    ) -> tuple[dict, list[dict]]:
+        """Score the code added between `new_code_base_commit` and the target commit."""
+        base_commit = cast("str", new_code_base_commit)
+        target_commit = new_code_target_commit or "HEAD"
+
+        # 1. Candidate files: core .py/.ipynb files that gained code since the base.
+        candidates, added_line_counts = _find_new_code_candidates(
+            base_commit, target_commit, repo_dir, new_code_deadline
+        )
+        candidate_rels = sorted(candidates)
+        added_files_count = sum(1 for changed in candidates.values() if changed.is_added)
+        # Notebook numstat counts JSON lines, so notebooks are left out of the line total.
+        added_lines_count = sum(
+            added_line_counts[rel] for rel in candidate_rels if not _is_notebook(rel)
+        )
+
+        # 2. Two samples from the candidates, drawn in this order so a seed reproduces them.
+        # File sample: .py files whose numstat already clears the line floor, plus every
+        # notebook (its JSON numstat can't be compared; the floor is applied to its unit).
+        file_pool = [
+            rel
+            for rel in candidate_rels
+            if _is_notebook(rel) or added_line_counts[rel] >= _AI_DETECTION_MIN_FILE_LINE_COUNT
+        ]
+        file_sample: list[str] = []
+        if file_combo_keys:
+            file_sample = rng.sample(
+                file_pool, min(ai_detection_file_sample_size, len(file_pool))
+            )
+        # Funnel sample: up to K candidate files to parse for changed functions, the same
+        # two-stage funnel as the snapshot.
+        funnel_sample: list[str] = []
+        if func_combo_keys:
+            funnel_sample = rng.sample(
+                candidate_rels, min(_AI_DETECTION_CANDIDATE_FILE_COUNT, len(candidate_rels))
+            )
+
+        # 3. Read each sampled file once, even if it is in both samples.
+        texts, script_paths = _read_new_code_texts(
+            list(dict.fromkeys([*file_sample, *funnel_sample])),
+            temp_dir,
+            notebook_scripts,
+            new_code_deadline,
+        )
+
+        # 4. Which lines of each read file are new since the base commit.
+        added_by_rel = _find_added_lines(
+            texts, candidates, base_commit, target_commit, repo_dir, new_code_deadline
+        )
+
+        # 5. Build the units: whole-file/snippet units, then sampled changed functions.
+        file_units = _build_file_units(file_sample, texts, candidates, added_by_rel)
+        pooled_functions = _pool_changed_functions(
+            funnel_sample,
+            texts,
+            script_paths,
+            added_by_rel,
+            parse_python_source_file,
+            new_code_deadline,
+        )
+        sampled_function_units = rng.sample(
+            pooled_functions, min(ai_detection_function_sample_size, len(pooled_functions))
+        )
+
+        fields: dict[str, Any] = {
+            "ai_detection_new_added_files_count": added_files_count,
+            "ai_detection_new_modified_files_count": len(candidates) - added_files_count,
+            "ai_detection_new_added_lines_count": added_lines_count,
+            "ai_detection_new_file_units_pooled_count": len(file_pool),
+            "ai_detection_new_whole_file_units_scored_count": sum(
+                1 for u in file_units if u["scope"] == "new_file"
+            ),
+            "ai_detection_new_snippet_units_scored_count": sum(
+                1 for u in file_units if u["scope"] == "added_lines"
+            ),
+            "ai_detection_new_candidate_files_sampled_count": len(funnel_sample),
+            "ai_detection_new_functions_pooled_count": len(pooled_functions),
+            "ai_detection_new_functions_sampled_count": len(sampled_function_units),
+        }
+
+        # 6. Score: each combo classifies the units of its own granularity. Rows are
+        # returned rather than written to the sink, so a failure drops them all.
+        rows: list[dict] = []
+        for combo_key in clf_models:
+            base_model, dataset = combo_registry[combo_key]
+            dataset_col = _ai_detection_column_safe(dataset)
+            model_col = _ai_detection_column_safe(base_model)
+            granularity = _AI_DETECTION_DATASET_GRANULARITY[dataset]
+            units = sampled_function_units if granularity == "function" else file_units
+            scored = _classify_batch_cached(
+                combo_key,
+                [unit["text"] for unit in units],
+                clf_models[combo_key],
+                batch_deadline=new_code_deadline,
+            )
+            for stat_name, value in _compute_aggregate_stats(granularity, scored).items():
+                fields[f"ai_detection_new_{dataset_col}_{model_col}_{stat_name}"] = value
+            if ai_detection_unit_scores is not None:
+                rows.extend(
+                    _unit_score_rows(
+                        combo_key, units, scored, new_code_base_commit, new_code_target_commit
+                    )
+                )
+        return fields, rows
 
     print(
         "Within compute_ai_detection_metrics..."
@@ -444,7 +1145,19 @@ def compute_ai_detection_metrics(  # noqa: C901
             shutil.copytree(repo_dir, temp_dir, ignore=shutil.ignore_patterns(".git"))
             print("Repository copied to temporary directory for AI detection.")  # Debug print
 
-            convert_directory(temp_dir, recursive=True, show_progress=False)
+            conversion = convert_directory(temp_dir, recursive=True, show_progress=False)
+            # Repo-relative notebook path -> its converted script, and the set of those
+            # script paths, so units can be traced back to notebooks.
+            temp_dir_resolved = temp_dir.resolve()
+            notebook_scripts = {
+                src.relative_to(temp_dir_resolved).as_posix(): script
+                for src, script in conversion.converted.items()
+                if src.suffix == ".ipynb"
+            }
+            notebook_script_paths = {
+                script.relative_to(temp_dir_resolved).as_posix()
+                for script in notebook_scripts.values()
+            }
             print(
                 "Jupyter notebooks converted to Python files for AI detection."
             )  # Debug print
@@ -480,6 +1193,7 @@ def compute_ai_detection_metrics(  # noqa: C901
             # File-granularity sampling: single-stage, sample N files directly (no
             # parsing needed — the whole file's text is the classification unit).
             file_texts: list[str] = []
+            file_text_paths: list[str] = []
             if file_combo_keys:
                 file_sample_size = min(ai_detection_file_sample_size, len(core_files))
                 sampled_files = rng.sample(core_files, file_sample_size)
@@ -492,13 +1206,15 @@ def compute_ai_detection_metrics(  # noqa: C901
                     if len(text.splitlines()) < _AI_DETECTION_MIN_FILE_LINE_COUNT:
                         continue
                     file_texts.append(text)
+                    file_text_paths.append(f.relative_to(temp_dir).as_posix())
             files_sampled_count = len(file_texts)
 
             # Function-granularity sampling: bounded two-stage funnel. Sample K
             # candidate files first (cheap — plain file listing), AST-parse only
             # those to pool functions, then sample N functions from the pool. This
             # bounds both files-read and files-parsed to K regardless of repo size.
-            function_texts: list[str] = []
+            # (repo-relative path, function key, function text) per sampled function.
+            function_units: list[tuple[str, str, str]] = []
             candidate_files_sampled_count = 0
             functions_pooled_count = 0
             if func_combo_keys:
@@ -506,18 +1222,19 @@ def compute_ai_detection_metrics(  # noqa: C901
                 candidate_files = rng.sample(core_files, candidate_file_count)
                 candidate_files_sampled_count = len(candidate_files)
 
-                pooled_functions: list[str] = []
+                pooled_functions: list[tuple[str, str, str]] = []
                 for f in candidate_files:
                     if deadline is not None:
                         deadline.check()
                     try:
-                        parsed_functions = parse_python_source_file(f).values()
+                        parsed_functions = parse_python_source_file(f).items()
                     except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as e:
                         print(f"Failed to parse {f} for function-level AI detection: {e}")
                         continue
+                    rel_path = f.relative_to(temp_dir).as_posix()
                     pooled_functions.extend(
-                        text
-                        for text in parsed_functions
+                        (rel_path, name, text)
+                        for name, text in parsed_functions
                         if len(text.splitlines()) >= _AI_DETECTION_MIN_FUNCTION_LINE_COUNT
                     )
                 functions_pooled_count = len(pooled_functions)
@@ -525,7 +1242,8 @@ def compute_ai_detection_metrics(  # noqa: C901
                 function_sample_size = min(
                     ai_detection_function_sample_size, len(pooled_functions)
                 )
-                function_texts = rng.sample(pooled_functions, function_sample_size)
+                function_units = rng.sample(pooled_functions, function_sample_size)
+            function_texts = [text for _, _, text in function_units]
             functions_sampled_count = len(function_texts)
 
             print(
@@ -545,6 +1263,28 @@ def compute_ai_detection_metrics(  # noqa: C901
                 "ai_detection_functions_sampled_count": functions_sampled_count,
             }
 
+            # Snapshot units for the per-unit score rows, built only when a sink is given.
+            snapshot_function_unit_rows: list[dict] = []
+            snapshot_file_unit_rows: list[dict] = []
+            if ai_detection_unit_scores is not None:
+                snapshot_function_unit_rows = [
+                    _make_unit(
+                        text,
+                        "snapshot",
+                        "function",
+                        rel_path,
+                        rel_path in notebook_script_paths,
+                        name,
+                    )
+                    for rel_path, name, text in function_units
+                ]
+                snapshot_file_unit_rows = [
+                    _make_unit(
+                        text, "snapshot", "file", rel_path, rel_path in notebook_script_paths
+                    )
+                    for text, rel_path in zip(file_texts, file_text_paths, strict=True)
+                ]
+
             for combo_key in clf_models:
                 base_model, dataset = combo_registry[combo_key]
                 dataset_col = _ai_detection_column_safe(dataset)
@@ -555,15 +1295,69 @@ def compute_ai_detection_metrics(  # noqa: C901
                 if granularity == "function":
                     scored = _classify_batch_cached(combo_key, function_texts, clf)
                     stats = _compute_aggregate_stats("function", scored)
+                    unit_rows = snapshot_function_unit_rows
                 else:
                     scored = _classify_batch_cached(combo_key, file_texts, clf)
                     stats = _compute_aggregate_stats("file", scored)
+                    unit_rows = snapshot_file_unit_rows
 
                 for stat_name, value in stats.items():
                     all_fields[f"ai_detection_{dataset_col}_{model_col}_{stat_name}"] = value
 
+                if ai_detection_unit_scores is not None:
+                    ai_detection_unit_scores.extend(
+                        _unit_score_rows(
+                            combo_key, unit_rows, scored, None, new_code_target_commit
+                        )
+                    )
+
             all_fields["ai_detection_cache_hits"] = cache_hits
             all_fields["ai_detection_cache_misses"] = cache_misses
+
+            # New-code scoring runs after the baseline is assembled, so a failure here
+            # can only null the new-code fields.
+            if not compute_new_code_ai_detection:
+                all_fields["ai_detection_new_status"] = "disabled"
+                all_fields["ai_detection_new_elapsed_seconds"] = 0.0
+            elif new_code_base_commit is None:
+                # No earlier year-end: all code is new, so the snapshot columns cover it.
+                all_fields["ai_detection_new_status"] = "first_year"
+                all_fields["ai_detection_new_elapsed_seconds"] = 0.0
+            else:
+                new_code_started = time.monotonic()
+                new_code_budget = ai_detection_new_code_timeout_seconds
+                if deadline is not None:
+                    # Stop before the outer deadline can fire on a finished baseline.
+                    new_code_budget = min(new_code_budget, deadline.remaining() - 5)
+                new_code_deadline = Deadline(max(new_code_budget, 0))
+                # Fields and unit rows are only merged in once the whole pass succeeds.
+                try:
+                    new_code_fields, new_code_rows = _compute_new_code_fields(
+                        new_code_deadline,
+                        repo_dir,
+                        temp_dir,
+                        notebook_scripts,
+                        clf_models,
+                        combo_registry,
+                        func_combo_keys,
+                        file_combo_keys,
+                    )
+                    all_fields.update(new_code_fields)
+                    all_fields["ai_detection_new_status"] = "ok"
+                    all_fields["ai_detection_new_base_commit_hash"] = new_code_base_commit
+                    if ai_detection_unit_scores is not None:
+                        ai_detection_unit_scores.extend(new_code_rows)
+                except (AnalysisTimeoutError, subprocess.TimeoutExpired):
+                    all_fields["ai_detection_new_status"] = "timeout"
+                except Exception as e:
+                    print(f"Error during new-code AI detection: {e}")
+                    import traceback
+
+                    print(traceback.format_exc())
+                    all_fields["ai_detection_new_status"] = "error"
+                all_fields["ai_detection_new_elapsed_seconds"] = (
+                    time.monotonic() - new_code_started
+                )
 
             print("Computed AI detection statistics for sampled functions/files.")  # Debug
             return AIDetectionResults(**all_fields)
@@ -586,15 +1380,52 @@ _AI_AGENT_CONFIG_GLOBS: list[tuple[str, list[str]]] = [
     ("ai_agent_config_claude_md_exists", ["CLAUDE.md", "CLAUDE.MD"]),
     ("ai_agent_config_cursor_rules_exists", [".cursorrules", ".cursor/rules"]),
     ("ai_agent_config_copilot_instructions_exists", [".github/copilot-instructions.md"]),
-    ("ai_agent_config_aider_exists", [".aider.conf.yml", "aider.conf.yml", ".aider.conf"]),
+    ("ai_agent_config_aider_exists", [".aider*", "aider.conf.yml"]),
     ("ai_agent_config_cline_rules_exists", [".clinerules"]),
     ("ai_agent_config_windsurf_rules_exists", [".windsurfrules"]),
     ("ai_agent_config_agents_md_exists", ["AGENTS.md", "AGENTS.MD"]),
+    ("ai_agent_config_gemini_md_exists", ["GEMINI.md"]),
+    ("ai_agent_config_claude_dir_exists", [".claude"]),
+    ("ai_agent_config_cursor_dir_exists", [".cursor"]),
+    ("ai_agent_config_copilot_path_instructions_exists", [".github/instructions"]),
+    ("ai_agent_config_windsurf_dir_exists", [".windsurf"]),
 ]
+
+
+def _first_added_datetime(
+    per_file_commit_deltas_df: pl.DataFrame,
+    patterns: list[str],
+    end_datetime: "datetime | None",
+    datetime_col: str,
+) -> str | None:
+    """Earliest commit adding a path equal to, under, or matching one of `patterns`."""
+    deltas = per_file_commit_deltas_df
+    if deltas.is_empty():
+        return None
+    if end_datetime is not None:
+        deltas = deltas.filter(pl.col(datetime_col) <= end_datetime)
+    # Cheap literal-prefix prefilter so fnmatch only runs on plausible paths.
+    prefix_expr = pl.lit(False)
+    for pattern in patterns:
+        prefix_expr = prefix_expr | pl.col("filename").str.starts_with(pattern.split("*")[0])
+    matched = [
+        added_at
+        for filename, added_at in deltas.filter(prefix_expr)
+        .select("filename", datetime_col)
+        .iter_rows()
+        if any(
+            filename == p or filename.startswith(p + "/") or fnmatch(filename, p)
+            for p in patterns
+        )
+    ]
+    return min(matched).isoformat() if matched else None
 
 
 def compute_ai_agent_config_metrics(
     repo_path: str | Path | Repo,
+    per_file_commit_deltas_df: pl.DataFrame | None = None,
+    end_datetime: "datetime | None" = None,
+    datetime_col: str = "authored_datetime",
 ) -> AIAgentConfigResults:
     if isinstance(repo_path, Repo):
         repo = repo_path
@@ -603,14 +1434,30 @@ def compute_ai_agent_config_metrics(
 
     repo_dir = Path(repo.working_dir)
 
-    field_values: dict[str, bool] = {}
+    field_values: dict[str, Any] = {}
+    first_added_datetimes: list[str] = []
     for field_name, patterns in _AI_AGENT_CONFIG_GLOBS:
         found = any(list(repo_dir.glob(pattern)) for pattern in patterns)
         field_values[field_name] = found
+        first_added = (
+            _first_added_datetime(
+                per_file_commit_deltas_df, patterns, end_datetime, datetime_col
+            )
+            if per_file_commit_deltas_df is not None
+            else None
+        )
+        field_values[field_name.replace("_exists", "_first_added_datetime")] = first_added
+        if first_added is not None:
+            first_added_datetimes.append(first_added)
 
     return AIAgentConfigResults(
         **field_values,
-        ai_agent_config_any_exists=any(field_values.values()),
+        ai_agent_config_any_exists=any(
+            value for key, value in field_values.items() if key.endswith("_exists")
+        ),
+        ai_agent_config_any_first_added_datetime=(
+            min(first_added_datetimes) if first_added_datetimes else None
+        ),
     )
 
 
@@ -619,14 +1466,24 @@ def compute_ai_agent_config_metrics(
 _NAME_COLS = ("author_name", "committer_name")
 _EMAIL_COLS = ("author_email", "committer_email")
 
-# Each entry: (name_substrings, email_substrings)
-_AGENT_PATTERNS: dict[str, tuple[list[str], list[str]]] = {
-    "devin": (["devin"], ["devin", "cognition"]),
-    "sweep": (["sweep"], ["sweep"]),
-    "copilot": (["copilot"], ["copilot"]),
-    "codeium": (["codeium"], ["codeium"]),
-    "claude": (["claude"], ["anthropic"]),
-    "cursor": (["cursor"], ["cursor"]),
+# Agent -> identity substrings, matched against lowercased name/email fields and
+# Co-authored-by lines. Bare name tokens (e.g. "devin", "claude") match real people.
+_AGENT_PATTERNS: dict[str, list[str]] = {
+    "devin": ["devin-ai-integration[bot]"],
+    "sweep": ["sweep-ai[bot]"],
+    "copilot": ["copilot-swe-agent[bot]"],
+    "codeium": [],
+    "claude": ["claude[bot]", "noreply@anthropic.com"],
+    "cursor": ["cursor[bot]", "cursoragent@cursor.com"],
+    "jules": ["google-labs-jules[bot]"],
+    "gemini": ["gemini-cli[bot]"],
+    "aider": ["(aider)", "aider@aider.chat"],
+}
+
+# Marker -> predicate over the lowercased full commit message (subject + body).
+_COMMIT_MARKERS: dict[str, Callable[[str], bool]] = {
+    "claude_code": lambda message: "generated with [claude code]" in message,
+    "aider": lambda message: message.startswith("aider: "),
 }
 
 
@@ -639,6 +1496,9 @@ class AICommitAuthorResults(DataClassJsonMixin):
     ai_commit_author_codeium_commit_count: int
     ai_commit_author_claude_commit_count: int
     ai_commit_author_cursor_commit_count: int
+    ai_commit_author_jules_commit_count: int
+    ai_commit_author_gemini_commit_count: int
+    ai_commit_author_aider_commit_count: int
     # Co-authored-by trailer
     ai_commit_coauthored_devin_commit_count: int
     ai_commit_coauthored_sweep_commit_count: int
@@ -646,47 +1506,44 @@ class AICommitAuthorResults(DataClassJsonMixin):
     ai_commit_coauthored_codeium_commit_count: int
     ai_commit_coauthored_claude_commit_count: int
     ai_commit_coauthored_cursor_commit_count: int
-    # Aggregates (union of both signals)
+    ai_commit_coauthored_jules_commit_count: int
+    ai_commit_coauthored_gemini_commit_count: int
+    ai_commit_coauthored_aider_commit_count: int
+    # Commit message markers
+    ai_commit_marker_claude_code_commit_count: int
+    ai_commit_marker_aider_commit_count: int
+    # Aggregates (union of all signals)
     ai_commit_total_ai_associated_count: int
     ai_commit_ai_associated_proportion: float | None
     ai_commit_any_detected: bool
 
 
-def _count_agent_commits(
-    df: pl.DataFrame,
-    name_substrings: list[str],
-    email_substrings: list[str],
-) -> int:
-    expr = pl.lit(False)
-    for col in _NAME_COLS:
-        for s in name_substrings:
-            expr = expr | pl.col(col).str.to_lowercase().str.contains(s)
-    for col in _EMAIL_COLS:
-        for s in email_substrings:
-            expr = expr | pl.col(col).str.to_lowercase().str.contains(s)
-    return df.filter(expr).height
-
-
 def _get_coauthor_counts_and_hashes(
     git_log_output: str,
     valid_hashes: set[str],
-) -> tuple[dict[str, int], set[str]]:
+) -> tuple[dict[str, int], set[str], dict[str, int], set[str]]:
     coauthor_counts: dict[str, int] = dict.fromkeys(_AGENT_PATTERNS, 0)
     coauthor_hashes: set[str] = set()
+    marker_counts: dict[str, int] = dict.fromkeys(_COMMIT_MARKERS, 0)
+    marker_hashes: set[str] = set()
     chunks = git_log_output.split("\x00")
     for i in range(0, len(chunks) - 1, 2):
         commit_hash = chunks[i].strip()
-        body = chunks[i + 1].lower()
+        message = chunks[i + 1].lower()
         if commit_hash not in valid_hashes:
             continue
-        for line in body.splitlines():
+        for line in message.splitlines():
             if not line.startswith("co-authored-by:"):
                 continue
-            for agent, (name_subs, email_subs) in _AGENT_PATTERNS.items():
-                if any(s in line for s in name_subs + email_subs):
+            for agent, identities in _AGENT_PATTERNS.items():
+                if any(s in line for s in identities):
                     coauthor_counts[agent] += 1
                     coauthor_hashes.add(commit_hash)
-    return coauthor_counts, coauthor_hashes
+        for marker, matches in _COMMIT_MARKERS.items():
+            if matches(message):
+                marker_counts[marker] += 1
+                marker_hashes.add(commit_hash)
+    return coauthor_counts, coauthor_hashes, marker_counts, marker_hashes
 
 
 def compute_ai_commit_author_metrics(
@@ -701,24 +1558,22 @@ def compute_ai_commit_author_metrics(
     # Part A: direct author/committer identity (DataFrame scan)
     author_counts: dict[str, int] = {}
     ai_associated_hashes: set[str] = set()
-    for agent, (name_subs, email_subs) in _AGENT_PATTERNS.items():
+    for agent, identities in _AGENT_PATTERNS.items():
         expr = pl.lit(False)
-        for col in _NAME_COLS:
-            for s in name_subs:
-                expr = expr | pl.col(col).str.to_lowercase().str.contains(s)
-        for col in _EMAIL_COLS:
-            for s in email_subs:
-                expr = expr | pl.col(col).str.to_lowercase().str.contains(s)
+        for col in (*_NAME_COLS, *_EMAIL_COLS):
+            for s in identities:
+                expr = expr | pl.col(col).str.to_lowercase().str.contains(s, literal=True)
         matched_hashes = commits_df.filter(expr)["commit_hash"].to_list()
         author_counts[agent] = len(matched_hashes)
         ai_associated_hashes.update(matched_hashes)
 
-    # Part B: Co-authored-by trailer (second git log pass)
+    # Part B: Co-authored-by trailer and message markers (second git log pass)
     valid_hashes: set[str] = set(commits_df["commit_hash"].to_list())
     coauthor_counts: dict[str, int] = dict.fromkeys(_AGENT_PATTERNS, 0)
+    marker_counts: dict[str, int] = dict.fromkeys(_COMMIT_MARKERS, 0)
 
     result = subprocess.run(
-        ["git", "log", "--format=%H%x00%b%x00", "HEAD"],
+        ["git", "log", "--format=%H%x00%B%x00", "HEAD"],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -726,10 +1581,11 @@ def compute_ai_commit_author_metrics(
         cwd=repo.working_dir,
     )
     if result.returncode == 0:
-        coauthor_counts, coauthor_hashes = _get_coauthor_counts_and_hashes(
-            result.stdout, valid_hashes
+        coauthor_counts, coauthor_hashes, marker_counts, marker_hashes = (
+            _get_coauthor_counts_and_hashes(result.stdout, valid_hashes)
         )
         ai_associated_hashes.update(coauthor_hashes)
+        ai_associated_hashes.update(marker_hashes)
 
     total_commits = len(commits_df)
     total_ai = len(ai_associated_hashes)
@@ -742,12 +1598,20 @@ def compute_ai_commit_author_metrics(
         ai_commit_author_codeium_commit_count=author_counts["codeium"],
         ai_commit_author_claude_commit_count=author_counts["claude"],
         ai_commit_author_cursor_commit_count=author_counts["cursor"],
+        ai_commit_author_jules_commit_count=author_counts["jules"],
+        ai_commit_author_gemini_commit_count=author_counts["gemini"],
+        ai_commit_author_aider_commit_count=author_counts["aider"],
         ai_commit_coauthored_devin_commit_count=coauthor_counts["devin"],
         ai_commit_coauthored_sweep_commit_count=coauthor_counts["sweep"],
         ai_commit_coauthored_copilot_commit_count=coauthor_counts["copilot"],
         ai_commit_coauthored_codeium_commit_count=coauthor_counts["codeium"],
         ai_commit_coauthored_claude_commit_count=coauthor_counts["claude"],
         ai_commit_coauthored_cursor_commit_count=coauthor_counts["cursor"],
+        ai_commit_coauthored_jules_commit_count=coauthor_counts["jules"],
+        ai_commit_coauthored_gemini_commit_count=coauthor_counts["gemini"],
+        ai_commit_coauthored_aider_commit_count=coauthor_counts["aider"],
+        ai_commit_marker_claude_code_commit_count=marker_counts["claude_code"],
+        ai_commit_marker_aider_commit_count=marker_counts["aider"],
         ai_commit_total_ai_associated_count=total_ai,
         ai_commit_ai_associated_proportion=proportion,
         ai_commit_any_detected=total_ai > 0,

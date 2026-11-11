@@ -102,6 +102,9 @@ def _analyze_repository(  # noqa: C901
     ai_detection_sampling_seed: int | None = None,
     ai_detection_function_sample_size: int = 50,
     ai_detection_file_sample_size: int = 20,
+    compute_new_code_ai_detection: bool = True,
+    ai_detection_new_code_timeout_seconds: float = 60.0,
+    ai_detection_unit_scores: list[dict] | None = None,
     hf_token: str | None = None,
     install_complexity_if_missing: bool = False,
     deadline: utils.Deadline | None = None,
@@ -296,6 +299,27 @@ def _analyze_repository(  # noqa: C901
         target_datetime=end_datetime,
         datetime_col=datetime_col,
     )
+    all_metrics["meta_end_commit_hash"] = target_hex
+
+    # Previous year-end snapshot: the latest non-bot commit at or before this window's
+    # start, which is exactly what the previous window's row was built from.
+    new_code_base_commit: str | None = None
+    if compute_ai_detection_metrics and compute_new_code_ai_detection and start_datetime:
+        prior_commits_df, _ = commits.normalize_changes_df_and_remove_bot_changes(
+            changes_df=parsed_commit_results.commit_summaries.filter(
+                pl.col(datetime_col) <= start_datetime_dt
+            ),
+            contributor_name_col=contributor_name_col,
+            contributor_email_col=contributor_email_col,
+            bot_name_indicators=bot_name_indicators,
+            bot_email_indicators=bot_email_indicators,
+        )
+        if len(prior_commits_df) > 0:
+            new_code_base_commit = utils.get_commit_hash_for_target_datetime(
+                commits_df=prior_commits_df,
+                target_datetime=None,
+                datetime_col=datetime_col,
+            )
 
     _check_deadline()
     with utils.worktree_at_commit(parsed_repo.repo, target_hex) as worktree_repo:
@@ -366,6 +390,11 @@ def _analyze_repository(  # noqa: C901
                 ai_detection_file_sample_size=ai_detection_file_sample_size,
                 hf_token=hf_token,
                 deadline=deadline,
+                compute_new_code_ai_detection=compute_new_code_ai_detection,
+                ai_detection_new_code_timeout_seconds=ai_detection_new_code_timeout_seconds,
+                ai_detection_unit_scores=ai_detection_unit_scores,
+                new_code_base_commit=new_code_base_commit,
+                new_code_target_commit=target_hex,
             )
 
             all_metrics.update(ai_detection_results.to_dict())
@@ -375,8 +404,20 @@ def _analyze_repository(  # noqa: C901
         _check_deadline()
         ai_agent_config_results = ai_detection.compute_ai_agent_config_metrics(
             repo_path=worktree_repo,
+            per_file_commit_deltas_df=parsed_commit_results.per_file_commit_deltas,
+            end_datetime=end_datetime_dt,
+            datetime_col=datetime_col,
         )
         all_metrics.update(ai_agent_config_results.to_dict())
+
+        # Best-effort: returns all-None rather than raising or running past the budget
+        if compute_sloc_metrics:
+            log.debug("Computing Python docstring/comment and notebook metrics")
+            python_doc_results = source.compute_python_doc_and_notebook_metrics(
+                repo_path=worktree_repo,
+                deadline=deadline,
+            )
+            all_metrics.update(python_doc_results.to_dict())
 
     # Compute platform metrics
     if compute_platform_metrics:
@@ -471,6 +512,9 @@ def analyze_repository(
     ai_detection_sampling_seed: int | None = None,
     ai_detection_function_sample_size: int = 50,
     ai_detection_file_sample_size: int = 20,
+    compute_new_code_ai_detection: bool = True,
+    ai_detection_new_code_timeout_seconds: float = 60.0,
+    ai_detection_unit_scores: list[dict] | None = None,
     hf_token: str | None = None,
     clone_timeout_seconds: int = 60,
     analyze_timeout_seconds: int = 600,
@@ -550,6 +594,9 @@ def analyze_repository(
                     ai_detection_sampling_seed=ai_detection_sampling_seed,
                     ai_detection_function_sample_size=ai_detection_function_sample_size,
                     ai_detection_file_sample_size=ai_detection_file_sample_size,
+                    compute_new_code_ai_detection=compute_new_code_ai_detection,
+                    ai_detection_new_code_timeout_seconds=ai_detection_new_code_timeout_seconds,
+                    ai_detection_unit_scores=ai_detection_unit_scores,
                     hf_token=hf_token,
                     install_complexity_if_missing=install_complexity_if_missing,
                 )
@@ -592,6 +639,9 @@ def analyze_repository(
                 ai_detection_sampling_seed=ai_detection_sampling_seed,
                 ai_detection_function_sample_size=ai_detection_function_sample_size,
                 ai_detection_file_sample_size=ai_detection_file_sample_size,
+                compute_new_code_ai_detection=compute_new_code_ai_detection,
+                ai_detection_new_code_timeout_seconds=ai_detection_new_code_timeout_seconds,
+                ai_detection_unit_scores=ai_detection_unit_scores,
                 install_complexity_if_missing=install_complexity_if_missing,
             )
         except Exception as e:

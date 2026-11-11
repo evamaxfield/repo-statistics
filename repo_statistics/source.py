@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 
+import ast
+import io
 import json
 import re
 import subprocess
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -244,3 +247,101 @@ def compute_tag_metrics(
         non_semver_tags_count=non_semver_tags_count,
         total_tags_count=len(tags),
     )
+
+
+@dataclass
+class PythonDocAndNotebookResults(DataClassJsonMixin):
+    python_lines_of_docstrings: int | None
+    python_lines_of_comments: int | None
+    notebook_file_count: int | None
+    notebook_lines_of_code: int | None
+
+
+def _python_docstring_and_comment_lines(text: str) -> tuple[int, int]:
+    docstring_lines = 0
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            first = node.body[0] if node.body else None
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                docstring_lines += (first.end_lineno or first.lineno) - first.lineno + 1
+
+    comment_lines = {
+        token.start[0]
+        for token in tokenize.generate_tokens(io.StringIO(text).readline)
+        if token.type == tokenize.COMMENT and not token.line[: token.start[1]].strip()
+    }
+    return docstring_lines, len(comment_lines)
+
+
+def _notebook_code_line_count(path: Path) -> int:
+    notebook = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    code_lines = 0
+    for cell in notebook.get("cells", []):
+        if cell.get("cell_type") != "code":
+            continue
+        source = cell.get("source", "")
+        if isinstance(source, list):
+            source = "".join(source)
+        code_lines += sum(1 for line in source.splitlines() if line.strip())
+    return code_lines
+
+
+def compute_python_doc_and_notebook_metrics(
+    repo_path: str | Path | Repo,
+    deadline: Deadline | None = None,
+) -> PythonDocAndNotebookResults:
+    """Best-effort: all None (never partial counts) on any failure or when time runs short."""
+    empty = PythonDocAndNotebookResults(
+        python_lines_of_docstrings=None,
+        python_lines_of_comments=None,
+        notebook_file_count=None,
+        notebook_lines_of_code=None,
+    )
+    try:
+        repo = repo_path if isinstance(repo_path, Repo) else Repo(repo_path)
+        repo_dir = Path(repo.working_dir)
+
+        docstring_lines = 0
+        comment_lines = 0
+        for py_file in repo_dir.rglob("*.py"):
+            if deadline is not None and deadline.remaining() < 5:
+                return empty
+            if not py_file.is_file():
+                continue
+            try:
+                file_docstrings, file_comments = _python_docstring_and_comment_lines(
+                    py_file.read_text(encoding="utf-8", errors="replace")
+                )
+            except (SyntaxError, ValueError, RecursionError, tokenize.TokenError):
+                continue
+            docstring_lines += file_docstrings
+            comment_lines += file_comments
+
+        notebook_count = 0
+        notebook_code_lines = 0
+        for notebook_file in repo_dir.rglob("*.ipynb"):
+            if deadline is not None and deadline.remaining() < 5:
+                return empty
+            if (
+                not notebook_file.is_file()
+                or ".ipynb_checkpoints" in notebook_file.relative_to(repo_dir).parts
+            ):
+                continue
+            notebook_count += 1
+            try:
+                notebook_code_lines += _notebook_code_line_count(notebook_file)
+            except (ValueError, AttributeError, TypeError):
+                continue
+
+        return PythonDocAndNotebookResults(
+            python_lines_of_docstrings=docstring_lines,
+            python_lines_of_comments=comment_lines,
+            notebook_file_count=notebook_count,
+            notebook_lines_of_code=notebook_code_lines,
+        )
+    except Exception:
+        return empty
