@@ -165,10 +165,14 @@ def compute_static_analysis_metrics(  # noqa: C901
 
     repo_dir = Path(repo.working_dir)
 
-    # Collect all non-binary files
+    # Collect non-binary programming files; others are dropped from the output anyway
     files: list[str] = []
     for fp in repo_dir.rglob("*"):
-        if fp.is_file() and ".git" not in fp.parts:
+        if (
+            fp.is_file()
+            and ".git" not in fp.parts
+            and get_linguist_file_type(fp) == FileTypes.programming.value
+        ):
             try:
                 fp.read_text(encoding="utf-8")
                 files.append(str(fp))
@@ -196,6 +200,10 @@ def compute_static_analysis_metrics(  # noqa: C901
             f"multimetric exceeded {multimetric_timeout_seconds}s timeout "
             f"for repo at {repo_dir}."
         )
+        return _empty_results()
+    except OSError as e:
+        # E2BIG when the file list exceeds the OS argument-length limit
+        log.warning(f"multimetric could not start for repo at {repo_dir}: {e}")
         return _empty_results()
 
     if result.returncode != 0:
