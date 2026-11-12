@@ -4,14 +4,27 @@
 
 Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`, `markup`, `prose`, `data`, `unknown`) and/or by **period span** (`{period}` = e.g., `1_week`, `4_weeks`).
 
+**Contribution types.** Every commit is typed by its author identity as `agent` (an identity matching an AI agent pattern, see section 14), `bot` (name matches `bot_name_indicators`, default `[bot]` and `copybara-service`, or email matches `bot_email_indicators`, default `[bot]`, `action@github.com`, `badger@gitter.im`, `@quantifiedcode.com`, `@waffle.io` and `copybara-worker@google.com`), or `human` (everything else), checked in that order because several agents carry `[bot]`. The committer is ignored, so a person merging on github.com stays `human` and Copybara-style export identities count as one human. Nothing is dropped: code-centric metrics use **overall** work, volume metrics also get per-type sets, and people-centric metrics use **humans only**.
+
+| Column naming | Meaning |
+|---|---|
+| unprefixed (`total_commit_count`, `1_week_total_churn_lines`, ...) | Overall: commits of every type |
+| `human_`, `bot_`, `agent_` prefix | The subset of commits in that set (section 6) |
+| `human_agent_coauthored_` prefix | Commits in both the human and agent sets (section 6) |
+| `human_` prefix on people-centric metrics (`human_total_contributor_count`, `{period}_human_stable_contributors_count`, ...) | Computed over humans only, after identity de-duplication |
+
+**Co-authored commits are credited to both parties, in full.** A human-authored commit with an agent `Co-authored-by:` trailer or message marker is in the human and agent sets. An agent-authored commit with a human `Co-authored-by:` trailer also credits that human in every people-centric metric, under the trailer's name and email. Each commit counts once in overall, with all of its lines. Human-to-human trailers are not credited.
+
+**Identity de-duplication** (`deduplicate_contributor_identities=True`, default; `False` turns off every rule below) merges the identities of one human over the full history before the date window: `git log` applies `.mailmap` (`%aN`/`%aE`), then a shared non-generic email, then a GitHub noreply login (`123+login@users.noreply.github.com` and `login@users.noreply.github.com`; logins that share the numeric id `123` are one renamed account; a name equal to a login of 3+ characters), then the name-based rules (`fuzzy_identity_threshold=90`, `None` turns all of them off), which run on letter-only keys: equal keys; a lone first name and the one full name that starts with it, unless its own handles spell a different surname; a key that is a prefix of 8+ letters, or a handle that is an initial plus surname (`cgoldberg`); an email local part equal to the other side's GitHub login; an email domain equal to the other side's login; a login that is a first name plus 1-3 initials ending in the surname's initial; and rapidfuzz names at or above the threshold that also have a handle backing one of them. Different GitHub logins never merge on name rules, and placeholder keys (`unknown`, `root`, ...) and keys under 4 letters never merge on name alone. Bot and agent identities are never merged.
+
 | Metric Family | Representative Metrics | Description |
 |--------------|---------|-------------|
 | [Development Activity Pattern Metrics](#1-development-activity-pattern-metrics) | `{period}_{filetype}_changed_binary_entropy`, `{period}_{filetype}_changed_binary_variation`, `{period}_{filetype}_changed_binary_frac`, `{period}_{filetype}_changed_binary_gini`, `{period}_{filetype}_lines_changed_count_entropy`, `{period}_{filetype}_lines_changed_count_variation`, `{period}_{filetype}_lines_changed_count_gini` | Metrics measuring regularity and consistency of development effort over time, calculated per period span and file type to identify sustained engagement patterns versus bursty development |
 | [Development Episode Characteristics](#2-development-episode-characteristics) | `{period}_{filetype}_did_change_median_span`, `{period}_{filetype}_did_change_mean_span`, `{period}_{filetype}_did_change_std_span`, `{period}_{filetype}_did_not_change_median_span`, `{period}_{filetype}_did_not_change_mean_span`, `{period}_{filetype}_did_not_change_std_span` | Metrics describing the temporal structure of active and inactive development periods, characterizing sustained work episodes and dormancy gaps |
-| [Contributor Engagement Patterns](#3-contributor-engagement-patterns) | `{period}_stable_contributors_count`, `{period}_transient_contributors_count`, `{period}_median_contribution_span_days`, `{period}_mean_contribution_span_days`, `{period}_normalized_median_contribution_span`, `{period}_normalized_mean_contribution_span` | Metrics characterizing contributor stability and engagement duration, distinguishing between sustained community members and episodic contributors |
-| [Contributor Distribution Metrics](#4-contributor-distribution-metrics) | `{filetype}_contributor_count`, `{filetype}_contributor_absence_factor`, `{filetype}_contributors_per_file_entropy`, `{filetype}_contributors_per_file_gini`, `{filetype}_files_per_contributor_entropy`, `{filetype}_files_per_contributor_gini`, `{filetype}_simple_threshold_specialist_count`, `{filetype}_simple_threshold_generalist_count`, `diff_contributor_count`, `same_contributor_count` | Metrics examining how development effort and knowledge are distributed among contributors, including bus factor analysis and specialist/generalist patterns |
+| [Contributor Engagement Patterns](#3-contributor-engagement-patterns) | `{period}_human_stable_contributors_count`, `{period}_human_transient_contributors_count`, `{period}_human_median_contribution_span_days`, `{period}_human_mean_contribution_span_days`, `{period}_human_normalized_median_contribution_span`, `{period}_human_normalized_mean_contribution_span` | Metrics characterizing contributor stability and engagement duration, distinguishing between sustained community members and episodic contributors |
+| [Contributor Distribution Metrics](#4-contributor-distribution-metrics) | `human_{filetype}_contributor_count`, `human_{filetype}_contributor_absence_factor`, `human_{filetype}_contributors_per_file_entropy`, `human_{filetype}_contributors_per_file_gini`, `human_{filetype}_files_per_contributor_entropy`, `human_{filetype}_files_per_contributor_gini`, `human_{filetype}_simple_threshold_specialist_count`, `human_{filetype}_simple_threshold_generalist_count`, `human_diff_contributor_count`, `human_same_contributor_count` | Metrics examining how development effort and knowledge are distributed among contributors, including bus factor analysis and specialist/generalist patterns |
 | [Repository Timeline Metrics](#5-repository-timeline-metrics) | `{filetype}_initial_change_datetime`, `{filetype}_most_recent_change_datetime`, `{filetype}_most_recent_substantial_change_datetime`, `{filetype}_change_duration_days`, `{filetype}_change_duration_to_most_recent_substantial_days`, `{filetype}_change_duration_from_substantial_to_most_recent_days` | Basic temporal metadata for development history analysis, tracking project age, activity status, and lifetime of meaningful development |
-| [Development Activity Volume](#6-development-activity-volume) | `{filetype}_commit_count`, `bot_changes_count`, `{filetype}_lines_of_code`, `{filetype}_lines_of_comments`, `{filetype}_code_to_comment_ratio` | Metrics quantifying overall development activity and effort, distinguishing between human and automated contributions and measuring codebase size |
+| [Development Activity Volume](#6-development-activity-volume) | `{filetype}_commit_count`, `{filetype}_lines_changed`, `{human|bot|agent|human_agent_coauthored}_{filetype}_commit_count`, `{human|bot|agent|human_agent_coauthored}_{filetype}_lines_changed`, `bot_changes_count`, `{filetype}_lines_of_code`, `{filetype}_lines_of_comments`, `{filetype}_code_to_comment_ratio` | Metrics quantifying overall development activity and effort, splitting commits and lines changed into overall, human, bot and agent sets and measuring codebase size |
 | [Community Engagement Metrics](#7-community-engagement-metrics) | `stargazers_count`, `forks_count`, `watchers_count`, `open_issues_count`, `primary_programming_language` | Metrics reflecting community interest and participation through GitHub features, indicating broader impact and active engagement |
 | [Release Management Metrics](#8-release-management-metrics) | `semver_tags_count`, `non_semver_tags_count`, `total_tags_count` | Metrics related to versioning and release practices, measuring adoption of formal release management conventions |
 | [Repository Classification Metadata](#9-repository-classification-metadata) | `project_type_heuristic_classification` | Descriptive metadata for filtering and comparative analysis, characterizing project type |
@@ -19,7 +32,7 @@ Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`,
 | [Code Churn Metrics](#11-code-churn-metrics) | `{period}_{filetype}_churn_lines`, `{period}_{filetype}_churn_normalized` | Metrics quantifying code volatility by measuring files with multiple changes within a period, computed per period span and file type |
 | [Code Complexity Metrics](#12-code-complexity-metrics) | `complexity_mean`, `complexity_median`, `complexity_max`, `complexity_sum`, `complexity_file_count` | Cyclomatic complexity of Python source files at the analysis end datetime |
 | [Static Analysis Metrics](#13-static-analysis-metrics) | `halstead_volume_mean`, `halstead_difficulty_mean`, `halstead_effort_mean`, `halstead_timerequired_mean`, `halstead_bugprop_mean`, `maintainability_index_mean`, `operators_sum_mean`, `operands_sum_mean`, `static_analysis_file_count` | Halstead software science metrics and maintainability index computed across Python source files at the analysis end datetime |
-| [AI Commit Author Metrics](#14-ai-commit-author-metrics) | `ai_commit_author_{agent}_commit_count`, `ai_commit_coauthored_{agent}_commit_count`, `ai_commit_total_ai_associated_count`, `ai_commit_ai_associated_proportion`, `ai_commit_any_detected` | Metrics detecting AI agent involvement in commits via author identity, co-authored-by trailers and commit message markers, across agents: devin, sweep, copilot, codeium, claude, cursor, jules, gemini, aider |
+| [AI Commit Author Metrics](#14-ai-commit-author-metrics) | `ai_commit_author_{agent}_commit_count`, `ai_commit_coauthored_{agent}_commit_count`, `ai_commit_total_ai_associated_count`, `ai_commit_ai_associated_proportion`, `ai_commit_any_detected` | Metrics detecting AI agent involvement in commits via author identity, co-authored-by trailers and commit message markers, across agents: devin, sweep, copilot, codeium, claude, cursor, jules, gemini, aider, amp |
 | [AI Agent Configuration Metrics](#15-ai-agent-configuration-metrics) | `ai_agent_config_claude_md_exists`, `ai_agent_config_cursor_rules_exists`, `ai_agent_config_copilot_instructions_exists`, `ai_agent_config_aider_exists`, `ai_agent_config_cline_rules_exists`, `ai_agent_config_windsurf_rules_exists`, `ai_agent_config_agents_md_exists`, `ai_agent_config_any_exists` | Binary indicators of AI coding agent configuration files present in the repository at the analysis end datetime |
 | [AI Code Detection Metrics](#16-ai-code-detection-metrics) | `ai_detection_unique_files_checked`, `ai_detection_p25_ai_function_proportion`, `ai_detection_p50_ai_function_proportion`, `ai_detection_p75_ai_function_proportion`, `ai_detection_{percentile}_ai_confidence_mean`, `ai_detection_{percentile}_human_confidence_mean` | Per-function AI authorship classification scores at three complexity percentile thresholds (p25/p50/p75), measured at the analysis end datetime |
 
@@ -27,7 +40,7 @@ Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`,
 
 ## 1. Development Activity Pattern Metrics
 
-Metrics measuring regularity and consistency of development effort over time. All metrics are computed per period span (e.g., `1_week`, `4_weeks`) and per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`), producing keys like `1_week_total_changed_binary_entropy`.
+Metrics measuring regularity and consistency of development effort over time. They use overall work (commits of every type, including bot and agent commits). All metrics are computed per period span (e.g., `1_week`, `4_weeks`) and per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`), producing keys like `1_week_total_changed_binary_entropy`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
@@ -41,7 +54,7 @@ Metrics measuring regularity and consistency of development effort over time. Al
 
 ## 2. Development Episode Characteristics
 
-Metrics describing the temporal structure of active and inactive development periods. All metrics are computed per period span and per file type, producing keys like `1_week_total_did_change_median_span`.
+Metrics describing the temporal structure of active and inactive development periods. They use overall work (commits of every type). All metrics are computed per period span and per file type, producing keys like `1_week_total_did_change_median_span`.
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
@@ -54,41 +67,41 @@ Metrics describing the temporal structure of active and inactive development per
 
 ## 3. Contributor Engagement Patterns
 
-Metrics characterizing contributor stability and engagement duration. All metrics are computed per period span (e.g., `1_week`, `4_weeks`), producing keys like `1_week_stable_contributors_count`. The period span defines the threshold for classifying a contributor as stable vs. transient.
+Metrics characterizing contributor stability and engagement duration. They count humans only, after identity de-duplication, and carry a `human_` prefix after the period. All metrics are computed per period span (e.g., `1_week`, `4_weeks`), producing keys like `1_week_human_stable_contributors_count`. The period span defines the threshold for classifying a contributor as stable vs. transient.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `{period}_stable_contributors_count` | Contributors whose activity spans ≥1 period span | Sustained community engagement and knowledge retention | Higher = more retention | CHAOSS Occasional Contributors (inverse); [1], [2], [3], [4] |
-| `{period}_transient_contributors_count` | Contributors whose activity spans <1 period span | May indicate good onboarding or poor retention depending on stable contributor presence | Context-dependent | CHAOSS Occasional Contributors; [1], [2], [3] |
-| `{period}_median_contribution_span_days` | Median individual contributor engagement duration in days | Better contributor retention | Higher = longer engagement | [5], [6], [7] |
-| `{period}_mean_contribution_span_days` | Mean individual contributor engagement duration in days | Typical contributor involvement | Higher = longer engagement | [5], [6], [7] |
-| `{period}_normalized_median_contribution_span` | Median contribution span / total analysis window duration | Accounts for project age in assessing engagement | Higher = longer relative engagement | [5], [6] |
-| `{period}_normalized_mean_contribution_span` | Mean contribution span / total analysis window duration | Project-adjusted engagement duration | Higher = longer relative engagement | [5], [6] |
+| `{period}_human_stable_contributors_count` | Contributors whose activity spans ≥1 period span | Sustained community engagement and knowledge retention | Higher = more retention | CHAOSS Occasional Contributors (inverse); [1], [2], [3], [4] |
+| `{period}_human_transient_contributors_count` | Contributors whose activity spans <1 period span | May indicate good onboarding or poor retention depending on stable contributor presence | Context-dependent | CHAOSS Occasional Contributors; [1], [2], [3] |
+| `{period}_human_median_contribution_span_days` | Median individual contributor engagement duration in days | Better contributor retention | Higher = longer engagement | [5], [6], [7] |
+| `{period}_human_mean_contribution_span_days` | Mean individual contributor engagement duration in days | Typical contributor involvement | Higher = longer engagement | [5], [6], [7] |
+| `{period}_human_normalized_median_contribution_span` | Median contribution span / total analysis window duration | Accounts for project age in assessing engagement | Higher = longer relative engagement | [5], [6] |
+| `{period}_human_normalized_mean_contribution_span` | Mean contribution span / total analysis window duration | Project-adjusted engagement duration | Higher = longer relative engagement | [5], [6] |
 
 ## 4. Contributor Distribution Metrics
 
-Metrics examining how development effort and knowledge are distributed among contributors. Most metrics are scoped per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`). Generalist/specialist counts are computed at three thresholds: `simple` (fixed 3-file cutoff), `median`, and `twenty_fifth_percentile`.
+Metrics examining how development effort and knowledge are distributed among contributors. They count humans only, after identity de-duplication, so every key carries a `human_` prefix (`human_total_contributor_count`). Lines credited to a human through a `Co-authored-by:` trailer on an agent commit count toward that human (bus factor, files per contributor). Most metrics are scoped per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`). Generalist/specialist counts are computed at three thresholds: `simple` (fixed 3-file cutoff), `median`, and `twenty_fifth_percentile`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `{filetype}_contributor_count` | Total distinct contributors touching this file type | Broader engagement reduces bus factor | Higher = more contributors | [4] and numerous MSR studies |
-| `{filetype}_contributor_absence_factor` | Contributors needed for 50% of changes to this file type (bus factor) | Concentration risk | Higher = less risk | [8], [9], [10], [11] |
-| `{filetype}_contributors_per_file_entropy` | Entropy of contributor count distribution across files | Balance between deep expertise and knowledge coverage | Higher = more even distribution | [12], [13], [14] |
-| `{filetype}_contributors_per_file_gini` | Gini coefficient of contributor count distribution across files | Inequality in how contributors are spread across files | Lower = more equal | [51], [52], [53] |
-| `{filetype}_files_per_contributor_entropy` | Entropy of file count distribution across contributors | Generalism vs. specialism balance | Higher = more even distribution | [12], [13], [14] |
-| `{filetype}_files_per_contributor_gini` | Gini coefficient of file count distribution across contributors | Inequality in how much of the codebase each contributor touches | Lower = more equal | [51], [52] |
-| `{filetype}_simple_threshold_specialist_count` | Contributors touching ≤3 files of this type | Deep expertise in specific areas | Context-dependent | [12], [13], [14] |
-| `{filetype}_simple_threshold_generalist_count` | Contributors touching >3 files of this type | Broader coverage reduces specialization risks | Higher = more coverage | [12], [13] |
-| `{filetype}_median_threshold_specialist_count` | Contributors below median files-touched threshold | Relative specialist count | Context-dependent | [12], [13], [14] |
-| `{filetype}_median_threshold_generalist_count` | Contributors above median files-touched threshold | Relative generalist count | Context-dependent | [12], [13] |
-| `{filetype}_twenty_fifth_percentile_threshold_specialist_count` | Contributors below 25th percentile files-touched threshold | Narrow specialist count | Context-dependent | [12], [13], [14] |
-| `{filetype}_twenty_fifth_percentile_threshold_generalist_count` | Contributors above 25th percentile files-touched threshold | Broad generalist count | Context-dependent | [12], [13] |
-| `diff_contributor_count` | Contributors in the first 20% of commits but not the last 20% | Turnover may indicate challenges or natural evolution | Context-dependent | [15], [16], [17], [18] |
-| `same_contributor_count` | Contributors present in both the first and last 20% of commits | Sustained engagement and knowledge retention | Higher = more continuity | [15], [16] |
+| `human_{filetype}_contributor_count` | Total distinct contributors touching this file type | Broader engagement reduces bus factor | Higher = more contributors | [4] and numerous MSR studies |
+| `human_{filetype}_contributor_absence_factor` | Contributors needed for 50% of changes to this file type (bus factor) | Concentration risk | Higher = less risk | [8], [9], [10], [11] |
+| `human_{filetype}_contributors_per_file_entropy` | Entropy of contributor count distribution across files | Balance between deep expertise and knowledge coverage | Higher = more even distribution | [12], [13], [14] |
+| `human_{filetype}_contributors_per_file_gini` | Gini coefficient of contributor count distribution across files | Inequality in how contributors are spread across files | Lower = more equal | [51], [52], [53] |
+| `human_{filetype}_files_per_contributor_entropy` | Entropy of file count distribution across contributors | Generalism vs. specialism balance | Higher = more even distribution | [12], [13], [14] |
+| `human_{filetype}_files_per_contributor_gini` | Gini coefficient of file count distribution across contributors | Inequality in how much of the codebase each contributor touches | Lower = more equal | [51], [52] |
+| `human_{filetype}_simple_threshold_specialist_count` | Contributors touching ≤3 files of this type | Deep expertise in specific areas | Context-dependent | [12], [13], [14] |
+| `human_{filetype}_simple_threshold_generalist_count` | Contributors touching >3 files of this type | Broader coverage reduces specialization risks | Higher = more coverage | [12], [13] |
+| `human_{filetype}_median_threshold_specialist_count` | Contributors below median files-touched threshold | Relative specialist count | Context-dependent | [12], [13], [14] |
+| `human_{filetype}_median_threshold_generalist_count` | Contributors above median files-touched threshold | Relative generalist count | Context-dependent | [12], [13] |
+| `human_{filetype}_twenty_fifth_percentile_threshold_specialist_count` | Contributors below 25th percentile files-touched threshold | Narrow specialist count | Context-dependent | [12], [13], [14] |
+| `human_{filetype}_twenty_fifth_percentile_threshold_generalist_count` | Contributors above 25th percentile files-touched threshold | Broad generalist count | Context-dependent | [12], [13] |
+| `human_diff_contributor_count` | Human contributors in the first 20% of commits (oldest first) but not the last 20% | Turnover may indicate challenges or natural evolution | Context-dependent | [15], [16], [17], [18] |
+| `human_same_contributor_count` | Human contributors present in both the first and last 20% of commits | Sustained engagement and knowledge retention | Higher = more continuity | [15], [16] |
 
 ## 5. Repository Timeline Metrics
 
-Basic temporal metadata for development history analysis. All metrics are scoped per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`), producing keys like `total_initial_change_datetime`.
+Basic temporal metadata for development history analysis. They use overall work (commits of every type). All metrics are scoped per file type (`total`, `programming`, `markup`, `prose`, `data`, `unknown`), producing keys like `total_initial_change_datetime`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
@@ -101,16 +114,24 @@ Basic temporal metadata for development history analysis. All metrics are scoped
 
 ## 6. Development Activity Volume
 
-Metrics quantifying overall development activity and effort. Commit counts are scoped per file type; SLOC metrics include per-file-type breakdowns.
+Metrics quantifying overall development activity and effort. Commit counts and lines changed are scoped per file type and come in five sets; SLOC metrics include per-file-type breakdowns.
+
+Sets, as a column prefix: none = overall (every commit once), `human_`, `bot_`, `agent_`, and `human_agent_coauthored_` (commits in both the human and agent sets). A commit with a human and an agent party counts in full, with all of its lines, in both the human and agent sets. Therefore `human_ + bot_ + agent_ - human_agent_coauthored_ = overall` holds for both commit counts and lines changed. Agent counts are lower bounds, because matching is identity-only.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
-| `{filetype}_commit_count` | Commits touching at least one file of this type | Activity indicator; quality matters more than quantity | Context-dependent | [24], [26] |
-| `bot_changes_count` | Commits excluded as automated/bot activity | Proportion of non-human development effort | Context-dependent | [25], [26] |
+| `{filetype}_commit_count` | Overall commits touching at least one file of this type (all commit types) | Activity indicator; quality matters more than quantity | Context-dependent | [24], [26] |
+| `{filetype}_lines_changed` | Overall lines changed (additions + deletions) in files of this type, over commits that touch that type | Volume of change | Context-dependent | [24], [26] |
+| `{set}_{filetype}_commit_count` | Commits in the `human_`, `bot_`, `agent_` or `human_agent_coauthored_` set that touch at least one file of this type | Who did the work, and how much of it is shared between people and agents | Context-dependent | [25], [26] |
+| `{set}_{filetype}_lines_changed` | Lines changed by the commits in that set | Share of change volume by contribution type | Context-dependent | [25], [26] |
+| `bot_changes_count` | Commits typed as bot, whatever their size (legacy column; commits are no longer dropped, and `bot_total_commit_count` counts only those that change files) | Proportion of automated development effort | Context-dependent | [25], [26] |
 | `{filetype}_lines_of_code` | Source lines of code for this file type at analysis end datetime | Size indicator for sustainability needs | Context-dependent | [27], [28] |
 | `{filetype}_lines_of_comments` | Comment lines for this file type at analysis end datetime | Maintainability and documentation | Higher = more documented | [27], [28] |
 | `{filetype}_code_to_comment_ratio` | Code lines / comment lines for this file type | Code documentation density | Higher = more comments per line of code | [27], [28] |
-| `meta_end_commit_hash` | SHA of the commit the point-in-time metrics were measured at (latest non-bot commit in the window) | Lets audits and per-unit outputs key on the exact snapshot | Metadata | |
+| `meta_end_commit_hash` | SHA of the commit the point-in-time metrics were measured at (latest commit of any type in the window) | Lets audits and per-unit outputs key on the exact snapshot | Metadata | |
+| `meta_deduplicate_contributor_identities` | Echo of the `deduplicate_contributor_identities` setting | Provenance of the contributor counts | Metadata | |
+| `meta_fuzzy_identity_threshold` | Echo of the `fuzzy_identity_threshold` setting (null = name-based rules off) | Provenance of the contributor counts | Metadata | |
+| `meta_fuzzy_identity_merge_count` | Number of identity merges made by the name-based rules (0 when de-duplication is off) | Audit of the least certain merge step | Metadata | |
 | `python_lines_of_docstrings` | Lines spanned by module, class and function docstrings across all `*.py` files (via `ast`); files that fail to parse are skipped | Separates docstring documentation from `#` comments, which `{filetype}_lines_of_comments` lumps together | Higher = more documented | |
 | `python_lines_of_comments` | Full-line `#` comment lines across all `*.py` files (via `tokenize`); a line with code and a trailing comment counts as code | Inline commentary density | Higher = more documented | |
 | `notebook_file_count` | `*.ipynb` files in the repository, excluding `.ipynb_checkpoints/` | Sizes notebook-based projects, for which pygount reports no SLOC | Metadata | |
@@ -142,7 +163,7 @@ Metrics related to versioning and release practices. Measured at the analysis en
 
 ## 9. Repository Classification Metadata
 
-Heuristic classification of project type based on contributor count and star count (adapted from Eghbal's "Working in Public").
+Heuristic classification of project type based on human contributor count (`human_total_contributor_count`) and star count (adapted from Eghbal's "Working in Public").
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
@@ -184,7 +205,7 @@ Binary indicators of documentation files and development practices supporting su
 
 ## 11. Code Churn Metrics
 
-Metrics quantifying code volatility by measuring files that are modified more than once within a single period (i.e., files that "churn"). Computed per period span and per file type, producing keys like `1_week_total_churn_lines`.
+Metrics quantifying code volatility by measuring files that are modified more than once within a single period (i.e., files that "churn"). Changes of every commit type count. Computed per period span and per file type, producing keys like `1_week_total_churn_lines`.
 
 | Metric | Description | Sustainability Relationship | Directionality | Related Work |
 |--------|-------------|---------------------------|----------------|--------------|
@@ -223,9 +244,9 @@ Halstead software science metrics and maintainability index, computed across Pyt
 
 ## 14. AI Commit Author Metrics
 
-Metrics detecting AI agent involvement in commits, via direct author/committer identity matching, `Co-authored-by:` trailer scanning, and commit message markers. Covers agents: `devin`, `sweep`, `copilot`, `codeium`, `claude`, `cursor`, `jules`, `gemini`, `aider`.
+Metrics detecting AI agent involvement in commits, via direct author/committer identity matching, `Co-authored-by:` trailer scanning, and commit message markers. Covers agents: `devin`, `sweep`, `copilot`, `codeium`, `claude`, `cursor`, `jules`, `gemini`, `aider`, `amp`.
 
-**Identity-only matching.** Each agent is matched by a small set of exact identity substrings (lowercased, literal) checked against the author/committer name and email fields and against each `Co-authored-by:` line: `devin-ai-integration[bot]` (devin), `sweep-ai[bot]` (sweep), `copilot-swe-agent[bot]` (copilot), `claude[bot]` and `noreply@anthropic.com` (claude), `cursor[bot]` and `cursoragent@cursor.com` (cursor), `google-labs-jules[bot]` (jules), `gemini-cli[bot]` (gemini), `(aider)` and `aider@aider.chat` (aider). Bare name tokens such as `devin` or `claude` are deliberately not matched, since they hit real people. `codeium` has no known commit identity, so its counts are always 0. Because the matching is identity-only, these counts are lower bounds on AI involvement.
+**Identity-only matching.** Each agent is matched by a small set of exact identity substrings (lowercased, literal) checked against the author/committer name and email fields and against each `Co-authored-by:` line: `devin-ai-integration[bot]` (devin), `sweep-ai[bot]` (sweep), `copilot-swe-agent[bot]` (copilot), `claude[bot]` and `noreply@anthropic.com` (claude), `cursor[bot]` and `cursoragent@cursor.com` (cursor), `google-labs-jules[bot]` (jules), `gemini-cli[bot]` (gemini), `(aider)` and `aider@aider.chat` (aider), `amp@ampcode.com` (amp), plus the placeholder identity `bot@example.com`, which is typed `agent` and counts toward the AI-associated total but has no per-agent column. Bare name tokens such as `devin` or `claude` are deliberately not matched, since they hit real people. `codeium` has no known commit identity, so its counts are always 0. Because the matching is identity-only, these counts are lower bounds on AI involvement.
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
@@ -234,7 +255,7 @@ Metrics detecting AI agent involvement in commits, via direct author/committer i
 | `ai_commit_marker_claude_code_commit_count` | Commits whose full message (subject and body) contains `Generated with [Claude Code]`, Claude Code's own commit/PR footer | AI-assisted commits that carry no matching identity | Metadata |
 | `ai_commit_marker_aider_commit_count` | Commits whose message starts with `aider: `, the prefix aider adds when it authors a commit | AI-assisted commits that carry no matching identity | Metadata |
 | `ai_commit_total_ai_associated_count` | Distinct commits associated with any AI agent (authored, co-authored or marked) | Overall AI involvement in development | Metadata |
-| `ai_commit_ai_associated_proportion` | AI-associated commits / total commits | Fraction of commits with AI involvement | Metadata |
+| `ai_commit_ai_associated_proportion` | AI-associated commits / overall non-merge commits (bot commits count in the denominator; merge commits do not) | Fraction of commits with AI involvement | Metadata |
 | `ai_commit_any_detected` | Whether any AI-associated commit was found | Boolean indicator of AI tool usage | Metadata |
 
 ## 15. AI Agent Configuration Metrics
@@ -296,7 +317,7 @@ Every dataset now produces the same shape of aggregate stats over its N-sample �
 
 The same classifiers also score the code added between consecutive year-end snapshots, with the same cache, models and per-combo stat set. It runs after the baseline in its own time budget (`ai_detection_new_code_timeout_seconds`, default 60) and is on by default (`compute_new_code_ai_detection=True`). A failure or timeout nulls only the `ai_detection_new_*` fields and never affects the baseline columns above.
 
-**Base commit.** The base is the latest non-bot commit at or before the window start, i.e. the snapshot the previous window's row was built from; the target is `meta_end_commit_hash`. If no commit precedes the window the status is `first_year` and every other new-code field is null: the baseline columns already describe that repo-year, because all of its code is new.
+**Base commit.** The base is the latest commit of any type at or before the window start, i.e. the snapshot the previous window's row was built from; the target is `meta_end_commit_hash`. If no commit precedes the window the status is `first_year` and every other new-code field is null: the baseline columns already describe that repo-year, because all of its code is new.
 
 **Changed files.** Two git diffs between base and target (`-M`, `-w`) list added and modified `*.py` and `*.ipynb` files; pure renames, deletions and whitespace-only edits are dropped, and the same test/docs/packaging filters as the baseline apply to repo-relative paths. Modified notebooks are diffed on their converted scripts.
 

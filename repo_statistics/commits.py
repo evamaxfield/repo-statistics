@@ -145,7 +145,7 @@ def parse_commits(
             [
                 "git",
                 "log",
-                "--format=COMMIT%x00%H%x00%an%x00%ae%x00%cn%x00%ce%x00%ai%x00%ci%x00%s",
+                "--format=COMMIT%x00%H%x00%aN%x00%aE%x00%cN%x00%cE%x00%ai%x00%ci%x00%s",
                 "--numstat",
                 "--no-renames",
                 "HEAD",
@@ -258,46 +258,18 @@ def parse_commits(
     )
 
 
-def normalize_changes_df_and_remove_bot_changes(
+def normalize_identity_columns(
     changes_df: pl.DataFrame,
-    contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
-    contributor_email_col: Literal["author_email", "committer_email"] = "author_email",
     contributor_name_cols: tuple[str, ...] = ("committer_name", "author_name"),
     contributor_email_cols: tuple[str, ...] = ("committer_email", "author_email"),
-    bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
-    bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
-) -> tuple[pl.DataFrame, int]:
+) -> pl.DataFrame:
     # Lower case and strip all author and committer names and emails
-    for c_name_col in contributor_name_cols:
-        changes_df = changes_df.with_columns(
-            pl.col(c_name_col).str.to_lowercase().str.strip_chars().alias(c_name_col)
+    return changes_df.with_columns(
+        *(
+            pl.col(col).str.to_lowercase().str.strip_chars().alias(col)
+            for col in (*contributor_name_cols, *contributor_email_cols)
         )
-    for c_email_col in contributor_email_cols:
-        changes_df = changes_df.with_columns(
-            pl.col(c_email_col).str.to_lowercase().str.strip_chars().alias(c_email_col)
-        )
-
-    # Remove bot changes
-    before_drop_count = len(changes_df)
-    if bot_name_indicators is not None:
-        for bot_name_indicator in bot_name_indicators:
-            changes_df = changes_df.filter(
-                pl.col(contributor_name_col)
-                .str.contains(bot_name_indicator, literal=True)
-                .not_()
-            )
-    if bot_email_indicators is not None:
-        for bot_email_indicator in bot_email_indicators:
-            changes_df = changes_df.filter(
-                pl.col(contributor_email_col)
-                .str.contains(bot_email_indicator, literal=True)
-                .not_()
-            )
-
-    after_drop_count = len(changes_df)
-    dropped_count = before_drop_count - after_drop_count
-
-    return changes_df, dropped_count
+    )
 
 
 @dataclass
@@ -526,3 +498,32 @@ def compute_commit_counts(
         )
 
     return CommitCountsResults(**results)
+
+
+def compute_contribution_set_counts(real_commits_df: pl.DataFrame) -> dict[str, int]:
+    """
+    Commit counts and lines changed for the human, bot, agent and human-agent
+    co-authored sets, plus overall lines changed. Expects one row per commit with
+    `in_human`, `in_agent` and `in_bot` flags.
+    """
+    sets = {
+        "": pl.lit(True),
+        "human_": pl.col("in_human"),
+        "bot_": pl.col("in_bot"),
+        "agent_": pl.col("in_agent"),
+        "human_agent_coauthored_": pl.col("in_human") & pl.col("in_agent"),
+    }
+
+    results: dict[str, int] = {}
+    for prefix, in_set in sets.items():
+        set_df = real_commits_df.filter(in_set)
+        for file_subset in ["total", *[ft.value for ft in FileTypes]]:
+            lines_changed_col = f"{file_subset}_lines_changed"
+            changed_df = set_df.filter(pl.col(lines_changed_col) > 0)
+            if prefix != "":
+                results[f"{prefix}{file_subset}_commit_count"] = len(changed_df)
+            results[f"{prefix}{file_subset}_lines_changed"] = int(
+                changed_df[lines_changed_col].sum()
+            )
+
+    return results

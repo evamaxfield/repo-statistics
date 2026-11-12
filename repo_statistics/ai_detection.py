@@ -21,6 +21,7 @@ import polars as pl
 from dataclasses_json import DataClassJsonMixin
 from git import Repo
 
+from .contribution_types import AGENT_PATTERNS, COMMIT_MARKERS, CommitTrailerInfo
 from .utils import AnalysisTimeoutError, Deadline, checked_subprocess_timeout
 
 if TYPE_CHECKING:
@@ -1466,26 +1467,6 @@ def compute_ai_agent_config_metrics(
 _NAME_COLS = ("author_name", "committer_name")
 _EMAIL_COLS = ("author_email", "committer_email")
 
-# Agent -> identity substrings, matched against lowercased name/email fields and
-# Co-authored-by lines. Bare name tokens (e.g. "devin", "claude") match real people.
-_AGENT_PATTERNS: dict[str, list[str]] = {
-    "devin": ["devin-ai-integration[bot]"],
-    "sweep": ["sweep-ai[bot]"],
-    "copilot": ["copilot-swe-agent[bot]"],
-    "codeium": [],
-    "claude": ["claude[bot]", "noreply@anthropic.com"],
-    "cursor": ["cursor[bot]", "cursoragent@cursor.com"],
-    "jules": ["google-labs-jules[bot]"],
-    "gemini": ["gemini-cli[bot]"],
-    "aider": ["(aider)", "aider@aider.chat"],
-}
-
-# Marker -> predicate over the lowercased full commit message (subject + body).
-_COMMIT_MARKERS: dict[str, Callable[[str], bool]] = {
-    "claude_code": lambda message: "generated with [claude code]" in message,
-    "aider": lambda message: message.startswith("aider: "),
-}
-
 
 @dataclass
 class AICommitAuthorResults(DataClassJsonMixin):
@@ -1499,6 +1480,7 @@ class AICommitAuthorResults(DataClassJsonMixin):
     ai_commit_author_jules_commit_count: int
     ai_commit_author_gemini_commit_count: int
     ai_commit_author_aider_commit_count: int
+    ai_commit_author_amp_commit_count: int
     # Co-authored-by trailer
     ai_commit_coauthored_devin_commit_count: int
     ai_commit_coauthored_sweep_commit_count: int
@@ -1509,6 +1491,7 @@ class AICommitAuthorResults(DataClassJsonMixin):
     ai_commit_coauthored_jules_commit_count: int
     ai_commit_coauthored_gemini_commit_count: int
     ai_commit_coauthored_aider_commit_count: int
+    ai_commit_coauthored_amp_commit_count: int
     # Commit message markers
     ai_commit_marker_claude_code_commit_count: int
     ai_commit_marker_aider_commit_count: int
@@ -1518,45 +1501,64 @@ class AICommitAuthorResults(DataClassJsonMixin):
     ai_commit_any_detected: bool
 
 
-def _get_coauthor_counts_and_hashes(
-    git_log_output: str,
-    valid_hashes: set[str],
-) -> tuple[dict[str, int], set[str], dict[str, int], set[str]]:
-    coauthor_counts: dict[str, int] = dict.fromkeys(_AGENT_PATTERNS, 0)
-    coauthor_hashes: set[str] = set()
-    marker_counts: dict[str, int] = dict.fromkeys(_COMMIT_MARKERS, 0)
-    marker_hashes: set[str] = set()
+_CO_AUTHORED_BY_RE = re.compile(
+    r"^co-authored-by:\s*(?P<name>[^<]*?)\s*(?:<(?P<email>[^>]*)>)?\s*$"
+)
+
+
+def _parse_commit_trailer_info(git_log_output: str) -> dict[str, CommitTrailerInfo]:
+    trailer_info: dict[str, CommitTrailerInfo] = {}
     chunks = git_log_output.split("\x00")
-    for i in range(0, len(chunks) - 1, 2):
+    for i in range(0, len(chunks) - 2, 3):
         commit_hash = chunks[i].strip()
-        message = chunks[i + 1].lower()
-        if commit_hash not in valid_hashes:
-            continue
+        message = chunks[i + 2].lower()
+        info = CommitTrailerInfo(is_merge=len(chunks[i + 1].split()) > 1)
         trailers = [line for line in message.splitlines() if line.startswith("co-authored-by:")]
-        for agent, identities in _AGENT_PATTERNS.items():
+        for agent, identities in AGENT_PATTERNS.items():
             if any(s in line for line in trailers for s in identities):
-                coauthor_counts[agent] += 1
-                coauthor_hashes.add(commit_hash)
-        for marker, matches in _COMMIT_MARKERS.items():
+                info.coauthor_agents.add(agent)
+        for marker, matches in COMMIT_MARKERS.items():
             if matches(message):
-                marker_counts[marker] += 1
-                marker_hashes.add(commit_hash)
-    return coauthor_counts, coauthor_hashes, marker_counts, marker_hashes
+                info.markers.add(marker)
+        for line in trailers:
+            if any(s in line for identities in AGENT_PATTERNS.values() for s in identities):
+                continue
+            trailer_match = _CO_AUTHORED_BY_RE.match(line.strip())
+            if trailer_match is not None and trailer_match.group("name"):
+                info.other_trailers.append(
+                    (trailer_match.group("name"), trailer_match.group("email") or None)
+                )
+        trailer_info[commit_hash] = info
+    return trailer_info
 
 
-def compute_ai_commit_author_metrics(
-    repo_path: str | Path | Repo,
-    commits_df: pl.DataFrame,
-) -> AICommitAuthorResults:
+def get_commit_trailer_info(repo_path: str | Path | Repo) -> dict[str, CommitTrailerInfo]:
     if isinstance(repo_path, Repo):
         repo = repo_path
     else:
         repo = Repo(repo_path)
 
+    result = subprocess.run(
+        ["git", "log", "--format=%H%x00%P%x00%B%x00", "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=repo.working_dir,
+    )
+    if result.returncode != 0:
+        return {}
+    return _parse_commit_trailer_info(result.stdout)
+
+
+def compute_ai_commit_author_metrics(
+    commits_df: pl.DataFrame,
+    trailer_info: dict[str, CommitTrailerInfo],
+) -> AICommitAuthorResults:
     # Part A: direct author/committer identity (DataFrame scan)
     author_counts: dict[str, int] = {}
     ai_associated_hashes: set[str] = set()
-    for agent, identities in _AGENT_PATTERNS.items():
+    for agent, identities in AGENT_PATTERNS.items():
         expr = pl.lit(False)
         for col in (*_NAME_COLS, *_EMAIL_COLS):
             for s in identities:
@@ -1565,27 +1567,26 @@ def compute_ai_commit_author_metrics(
         author_counts[agent] = len(matched_hashes)
         ai_associated_hashes.update(matched_hashes)
 
-    # Part B: Co-authored-by trailer and message markers (second git log pass)
+    # Part B: Co-authored-by trailer and message markers
     valid_hashes: set[str] = set(commits_df["commit_hash"].to_list())
-    coauthor_counts: dict[str, int] = dict.fromkeys(_AGENT_PATTERNS, 0)
-    marker_counts: dict[str, int] = dict.fromkeys(_COMMIT_MARKERS, 0)
+    coauthor_counts: dict[str, int] = dict.fromkeys(AGENT_PATTERNS, 0)
+    marker_counts: dict[str, int] = dict.fromkeys(COMMIT_MARKERS, 0)
+    for commit_hash in valid_hashes:
+        info = trailer_info.get(commit_hash)
+        if info is None:
+            continue
+        for agent in info.coauthor_agents:
+            coauthor_counts[agent] += 1
+        for marker in info.markers:
+            marker_counts[marker] += 1
+        if info.agent_associated:
+            ai_associated_hashes.add(commit_hash)
 
-    result = subprocess.run(
-        ["git", "log", "--format=%H%x00%B%x00", "HEAD"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=repo.working_dir,
+    total_commits = sum(
+        1
+        for commit_hash in valid_hashes
+        if commit_hash not in trailer_info or not trailer_info[commit_hash].is_merge
     )
-    if result.returncode == 0:
-        coauthor_counts, coauthor_hashes, marker_counts, marker_hashes = (
-            _get_coauthor_counts_and_hashes(result.stdout, valid_hashes)
-        )
-        ai_associated_hashes.update(coauthor_hashes)
-        ai_associated_hashes.update(marker_hashes)
-
-    total_commits = len(commits_df)
     total_ai = len(ai_associated_hashes)
     proportion = total_ai / total_commits if total_commits > 0 else None
 
@@ -1599,6 +1600,7 @@ def compute_ai_commit_author_metrics(
         ai_commit_author_jules_commit_count=author_counts["jules"],
         ai_commit_author_gemini_commit_count=author_counts["gemini"],
         ai_commit_author_aider_commit_count=author_counts["aider"],
+        ai_commit_author_amp_commit_count=author_counts["amp"],
         ai_commit_coauthored_devin_commit_count=coauthor_counts["devin"],
         ai_commit_coauthored_sweep_commit_count=coauthor_counts["sweep"],
         ai_commit_coauthored_copilot_commit_count=coauthor_counts["copilot"],
@@ -1608,6 +1610,7 @@ def compute_ai_commit_author_metrics(
         ai_commit_coauthored_jules_commit_count=coauthor_counts["jules"],
         ai_commit_coauthored_gemini_commit_count=coauthor_counts["gemini"],
         ai_commit_coauthored_aider_commit_count=coauthor_counts["aider"],
+        ai_commit_coauthored_amp_commit_count=coauthor_counts["amp"],
         ai_commit_marker_claude_code_commit_count=marker_counts["claude_code"],
         ai_commit_marker_aider_commit_count=marker_counts["aider"],
         ai_commit_total_ai_associated_count=total_ai,

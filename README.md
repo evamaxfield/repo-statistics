@@ -50,14 +50,14 @@ repo_metrics = analyze_repository(
 #     compute_platform_metrics=False,
 # )
 
-# We also ignore bot changes by default by looking for
-# "[bot]" account naming in commit information
-# This can be disabled, or, changed as well
+# Every commit is typed as human, bot, or AI agent work (nothing is dropped).
+# Bots are found by "[bot]" account naming in commit information;
+# this can be disabled, or, changed as well
 repo_metrics = analyze_repository(
     repo_path="https://github.com/bioio-devs/bioio",
-    # Keep all bots by ignoring name checks
+    # Stop typing commits as bot work by ignoring name checks
     bot_name_indicators=None,
-    # Keep all bots by ignoring email checks
+    # Stop typing commits as bot work by ignoring email checks
     bot_email_indicators=None,
     compute_platform_metrics=False,
 )
@@ -73,10 +73,10 @@ Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`,
 |--------------|---------|-------------|
 | [Development Activity Pattern Metrics](#1-development-activity-pattern-metrics) | `{period}_{filetype}_changed_binary_entropy`, `{period}_{filetype}_changed_binary_variation`, `{period}_{filetype}_changed_binary_frac`, `{period}_{filetype}_changed_binary_gini`, `{period}_{filetype}_lines_changed_count_entropy`, `{period}_{filetype}_lines_changed_count_variation`, `{period}_{filetype}_lines_changed_count_gini` | Metrics measuring regularity and consistency of development effort over time, calculated per period span and file type to identify sustained engagement patterns versus bursty development |
 | [Development Episode Characteristics](#2-development-episode-characteristics) | `{period}_{filetype}_did_change_median_span`, `{period}_{filetype}_did_change_mean_span`, `{period}_{filetype}_did_change_std_span`, `{period}_{filetype}_did_not_change_median_span`, `{period}_{filetype}_did_not_change_mean_span`, `{period}_{filetype}_did_not_change_std_span` | Metrics describing the temporal structure of active and inactive development periods, characterizing sustained work episodes and dormancy gaps |
-| [Contributor Engagement Patterns](#3-contributor-engagement-patterns) | `{period}_stable_contributors_count`, `{period}_transient_contributors_count`, `{period}_median_contribution_span_days`, `{period}_mean_contribution_span_days`, `{period}_normalized_median_contribution_span`, `{period}_normalized_mean_contribution_span` | Metrics characterizing contributor stability and engagement duration, distinguishing between sustained community members and episodic contributors |
-| [Contributor Distribution Metrics](#4-contributor-distribution-metrics) | `{filetype}_contributor_count`, `{filetype}_contributor_absence_factor`, `{filetype}_contributors_per_file_entropy`, `{filetype}_contributors_per_file_gini`, `{filetype}_files_per_contributor_entropy`, `{filetype}_files_per_contributor_gini`, `{filetype}_simple_threshold_specialist_count`, `{filetype}_simple_threshold_generalist_count`, `diff_contributor_count`, `same_contributor_count` | Metrics examining how development effort and knowledge are distributed among contributors, including bus factor analysis and specialist/generalist patterns |
+| [Contributor Engagement Patterns](#3-contributor-engagement-patterns) | `{period}_human_stable_contributors_count`, `{period}_human_transient_contributors_count`, `{period}_human_median_contribution_span_days`, `{period}_human_mean_contribution_span_days`, `{period}_human_normalized_median_contribution_span`, `{period}_human_normalized_mean_contribution_span` | Metrics characterizing contributor stability and engagement duration, distinguishing between sustained community members and episodic contributors |
+| [Contributor Distribution Metrics](#4-contributor-distribution-metrics) | `human_{filetype}_contributor_count`, `human_{filetype}_contributor_absence_factor`, `human_{filetype}_contributors_per_file_entropy`, `human_{filetype}_contributors_per_file_gini`, `human_{filetype}_files_per_contributor_entropy`, `human_{filetype}_files_per_contributor_gini`, `human_{filetype}_simple_threshold_specialist_count`, `human_{filetype}_simple_threshold_generalist_count`, `human_diff_contributor_count`, `human_same_contributor_count` | Metrics examining how development effort and knowledge are distributed among contributors, including bus factor analysis and specialist/generalist patterns |
 | [Repository Timeline Metrics](#5-repository-timeline-metrics) | `{filetype}_initial_change_datetime`, `{filetype}_most_recent_change_datetime`, `{filetype}_most_recent_substantial_change_datetime`, `{filetype}_change_duration_days`, `{filetype}_change_duration_to_most_recent_substantial_days`, `{filetype}_change_duration_from_substantial_to_most_recent_days` | Basic temporal metadata for development history analysis, tracking project age, activity status, and lifetime of meaningful development |
-| [Development Activity Volume](#6-development-activity-volume) | `{filetype}_commit_count`, `bot_changes_count`, `{filetype}_lines_of_code`, `{filetype}_lines_of_comments`, `{filetype}_code_to_comment_ratio` | Metrics quantifying overall development activity and effort, distinguishing between human and automated contributions and measuring codebase size |
+| [Development Activity Volume](#6-development-activity-volume) | `{filetype}_commit_count`, `{filetype}_lines_changed`, `{set}_{filetype}_commit_count`, `{set}_{filetype}_lines_changed`, `bot_changes_count`, `{filetype}_lines_of_code`, `{filetype}_lines_of_comments`, `{filetype}_code_to_comment_ratio` | Metrics quantifying overall development activity and effort, splitting commits and lines changed into overall, human, bot and agent sets (`{set}` = `human`, `bot`, `agent`, `human_agent_coauthored`) and measuring codebase size |
 | [Community Engagement Metrics](#7-community-engagement-metrics) | `stargazers_count`, `forks_count`, `watchers_count`, `open_issues_count`, `primary_programming_language` | Metrics reflecting community interest and participation through GitHub features, indicating broader impact and active engagement |
 | [Release Management Metrics](#8-release-management-metrics) | `semver_tags_count`, `non_semver_tags_count`, `total_tags_count` | Metrics related to versioning and release practices, measuring adoption of formal release management conventions |
 | [Repository Classification Metadata](#9-repository-classification-metadata) | `project_type_heuristic_classification` | Descriptive metadata for filtering and comparative analysis, characterizing project type |

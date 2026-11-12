@@ -26,8 +26,10 @@ from . import (
     classification,
     commits,
     complexity,
+    contribution_types,
     contributors,
     documentation,
+    identities,
     platform,
     source,
     static_analysis,
@@ -68,6 +70,10 @@ class TrackedErrorResult(DataClassJsonMixin):
     tb: str
 
 
+def _human_prefixed(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {f"human_{key}": value for key, value in metrics.items()}
+
+
 def _analyze_repository(  # noqa: C901
     repo_path: str | Path | Repo,
     github_token: str | None = None,
@@ -77,8 +83,13 @@ def _analyze_repository(  # noqa: C901
     contributor_email_col: Literal["author_email", "committer_email"] = "author_email",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     period_spans: tuple[str, ...] | list[str] = ("1 week", "4 weeks"),
-    bot_name_indicators: tuple[str, ...] | None = ("[bot]",),
-    bot_email_indicators: tuple[str, ...] | None = ("[bot]",),
+    bot_name_indicators: tuple[str, ...]
+    | None = contribution_types.DEFAULT_BOT_NAME_INDICATORS,
+    bot_email_indicators: tuple[str, ...] | None = (
+        contribution_types.DEFAULT_BOT_EMAIL_INDICATORS
+    ),
+    deduplicate_contributor_identities: bool = True,
+    fuzzy_identity_threshold: float | None = 90,
     substantial_change_threshold_quantile: float = 0.1,
     compute_timeseries_metrics: bool = True,
     compute_contributor_stability_metrics: bool = True,
@@ -128,6 +139,48 @@ def _analyze_repository(  # noqa: C901
     if len(commits_df) == 0:
         raise ValueError(f"Repository {parsed_repo.owner}/{parsed_repo.name} has no commits.")
 
+    # Type every commit as human, bot, or agent work
+    commits_df = commits.normalize_identity_columns(commits_df)
+    per_file_commit_deltas_df = commits.normalize_identity_columns(per_file_commit_deltas_df)
+    commits_df = contribution_types.add_contribution_type(
+        commits_df,
+        contributor_name_col,
+        contributor_email_col,
+        bot_name_indicators=bot_name_indicators,
+        bot_email_indicators=bot_email_indicators,
+    )
+    per_file_commit_deltas_df = per_file_commit_deltas_df.join(
+        commits_df.select("commit_hash", "contribution_type"),
+        on="commit_hash",
+        how="left",
+    )
+
+    # Credit humans named on agent commits, then merge identities over the full history
+    log.debug("Parsing commit trailers")
+    _check_deadline()
+    commit_trailer_info = ai_detection.get_commit_trailer_info(parsed_repo.repo)
+    commits_df, per_file_commit_deltas_df = contribution_types.add_human_credit_rows(
+        commits_df,
+        per_file_commit_deltas_df,
+        commit_trailer_info,
+        contributor_name_col,
+        contributor_email_col,
+        bot_name_indicators=bot_name_indicators,
+        bot_email_indicators=bot_email_indicators,
+    )
+    fuzzy_identity_merge_count = 0
+    if deduplicate_contributor_identities:
+        log.debug("Resolving contributor identities")
+        commits_df, per_file_commit_deltas_df, fuzzy_identity_merge_count = (
+            identities.resolve_contributor_identities(
+                commits_df,
+                per_file_commit_deltas_df,
+                contributor_name_col,
+                contributor_email_col,
+                fuzzy_identity_threshold,
+            )
+        )
+
     # Parse and filter changes to datetime range
     commits_df, start_datetime_dt, end_datetime_dt = utils.filter_changes_to_dt_range(
         changes_df=commits_df,
@@ -163,64 +216,78 @@ def _analyze_repository(  # noqa: C901
         "meta_bot_email_indicators": (
             "---".join(bot_email_indicators) if bot_email_indicators is not None else None
         ),
+        "meta_deduplicate_contributor_identities": deduplicate_contributor_identities,
+        "meta_fuzzy_identity_threshold": fuzzy_identity_threshold,
+        "meta_fuzzy_identity_merge_count": fuzzy_identity_merge_count,
     }
 
-    # Save pre-bot-filter df for AI agent authorship detection (agents like
-    # devin-ai-integration[bot] are removed by the bot filter)
-    pre_bot_filter_commits_df = commits_df
-
-    # Normalize and drop bot changes
-    log.debug("Removing bot changes")
-    commits_df, bot_changes_count = commits.normalize_changes_df_and_remove_bot_changes(
-        changes_df=commits_df,
-        contributor_name_col=contributor_name_col,
-        contributor_email_col=contributor_email_col,
-        bot_name_indicators=bot_name_indicators,
-        bot_email_indicators=bot_email_indicators,
+    # Overall work is one row per real commit of any type. Human-credit rows only
+    # exist so people-centric metrics see every human, so they are held out here.
+    overall_commits_df = commits_df.filter(~pl.col("is_credit_row"))
+    overall_deltas_df = per_file_commit_deltas_df.filter(~pl.col("is_credit_row"))
+    human_commits_df = commits_df.filter(pl.col("contribution_type") == "human")
+    human_deltas_df = per_file_commit_deltas_df.filter(pl.col("contribution_type") == "human")
+    all_metrics["bot_changes_count"] = len(
+        overall_commits_df.filter(pl.col("contribution_type") == "bot")
     )
-    per_file_commit_deltas_df, _ = commits.normalize_changes_df_and_remove_bot_changes(
-        changes_df=per_file_commit_deltas_df,
-        contributor_name_col=contributor_name_col,
-        contributor_email_col=contributor_email_col,
-        bot_name_indicators=bot_name_indicators,
-        bot_email_indicators=bot_email_indicators,
-    )
-    all_metrics["bot_changes_count"] = bot_changes_count
 
-    # Compute AI commit author metrics (uses pre-bot-filter df to catch [bot]-named agents)
+    # Compute AI commit author metrics (identity matching on author and committer)
     log.debug("Computing AI commit author metrics")
     _check_deadline()
     ai_commit_author_results = ai_detection.compute_ai_commit_author_metrics(
-        repo_path=repo_path,
-        commits_df=pre_bot_filter_commits_df,
+        commits_df=overall_commits_df,
+        trailer_info=commit_trailer_info,
     )
     all_metrics.update(ai_commit_author_results.to_dict())
 
-    # Compute commit counts
+    # Compute commit counts and the human / bot / agent sets
     log.debug("Computing commit counts")
     commit_count_results = commits.compute_commit_counts(
-        commits_df=commits_df,
+        commits_df=overall_commits_df,
         datetime_col=datetime_col,
     )
     all_metrics.update(commit_count_results.to_dict())
+    credited_hashes = set(commits_df.filter(pl.col("is_credit_row"))["commit_hash"])
+    agent_associated_hashes = {
+        commit_hash
+        for commit_hash, info in commit_trailer_info.items()
+        if info.agent_associated
+    }
+    all_metrics.update(
+        commits.compute_contribution_set_counts(
+            contribution_types.add_contribution_set_flags(
+                overall_commits_df,
+                credited_hashes=credited_hashes,
+                agent_associated_hashes=agent_associated_hashes,
+            )
+        )
+    )
 
     # Get important change dates
     log.debug("Computing important change dates")
     important_change_date_results = commits.compute_important_change_dates(
-        commits_df=commits_df,
+        commits_df=overall_commits_df,
         datetime_col=datetime_col,
         substantial_change_threshold_quantile=substantial_change_threshold_quantile,
     )
     all_metrics.update(important_change_date_results.to_dict())
 
-    # Compute contributor counts
+    # Compute contributor counts (humans only)
     log.debug("Computing contributor counts")
     contributor_count_results = contributors.compute_contributor_counts(
-        commits_df=commits_df,
+        commits_df=human_commits_df,
         contributor_name_col=contributor_name_col,
         datetime_col=datetime_col,
     )
-    all_metrics.update(contributor_count_results.to_dict())
+    all_metrics.update(_human_prefixed(contributor_count_results.to_dict()))
+
+    # Compute how many early contributors are still present late (humans only)
+    contributor_change_results = contributors.compute_contributor_change_metrics(
+        commits_df=human_commits_df.sort(datetime_col),
+        datetime_col=datetime_col,
+        contributor_name_col=contributor_name_col,
+    )
+    all_metrics.update(_human_prefixed(contributor_change_results.to_dict()))
 
     # Compute timeseries and contributor stability metrics
     _check_deadline()
@@ -230,7 +297,7 @@ def _analyze_repository(  # noqa: C901
         if compute_timeseries_metrics:
             log.debug(f"Computing timeseries metrics for period span: {period_span}")
             timeseries_metrics = timeseries.compute_timeseries_metrics(
-                commits_df=commits_df,
+                commits_df=overall_commits_df,
                 period_span=period_span,
                 start_datetime=start_datetime_dt,
                 end_datetime=end_datetime_dt,
@@ -243,7 +310,7 @@ def _analyze_repository(  # noqa: C901
         if compute_contributor_stability_metrics:
             log.debug(f"Computing contributor stability metrics for period span: {period_span}")
             contributor_stability_metrics = contributors.compute_contributor_stability_metrics(
-                commits_df=commits_df,
+                commits_df=human_commits_df,
                 period_span=period_span,
                 start_datetime=start_datetime_dt,
                 end_datetime=end_datetime_dt,
@@ -252,12 +319,12 @@ def _analyze_repository(  # noqa: C901
             )
 
             for key, value in contributor_stability_metrics.to_dict().items():
-                all_metrics[f"{period_span_key}_{key}"] = value
+                all_metrics[f"{period_span_key}_human_{key}"] = value
 
         if compute_churn_metrics:
             log.debug(f"Computing code churn metrics for period span: {period_span}")
             churn_results = churn.compute_code_churn(
-                per_file_commit_deltas_df=per_file_commit_deltas_df,
+                per_file_commit_deltas_df=overall_deltas_df,
                 period_span=period_span,
                 start_datetime=start_datetime_dt,
                 datetime_col=datetime_col,
@@ -266,53 +333,47 @@ def _analyze_repository(  # noqa: C901
             for key, value in churn_results.to_dict().items():
                 all_metrics[f"{period_span_key}_{key}"] = value
 
-    # Compute other contributor metrics
+    # Compute other contributor metrics (humans only)
     if compute_contributor_absence_factor:
         log.debug("Computing contributor absence factor metrics")
         contributor_absence_factor_metrics = contributors.compute_contributor_absence_factor(
-            commits_df=commits_df,
+            commits_df=human_commits_df,
             contributor_name_col=contributor_name_col,
             datetime_col=datetime_col,
         )
 
-        all_metrics.update(contributor_absence_factor_metrics.to_dict())
+        all_metrics.update(_human_prefixed(contributor_absence_factor_metrics.to_dict()))
 
-    # Compute contributor distribution metrics
+    # Compute contributor distribution metrics (humans only)
     if compute_contributor_distribution_metrics:
         log.debug("Computing contributor distribution metrics")
         contributor_distribution_metrics = (
             contributors.compute_contributor_distribution_metrics(
-                per_file_commit_deltas_df=per_file_commit_deltas_df,
+                per_file_commit_deltas_df=human_deltas_df,
                 contributor_name_col=contributor_name_col,
                 datetime_col=datetime_col,
             )
         )
 
-        all_metrics.update(contributor_distribution_metrics.to_dict())
+        all_metrics.update(_human_prefixed(contributor_distribution_metrics.to_dict()))
 
     # Every point-in-time metric family below reads the repository's file tree at the
     # target commit. Give this call its own detached worktree rather than checking that
     # commit out in the shared clone, so concurrent calls against the same clone can
     # never observe or clobber each other's working tree.
     target_hex = utils.get_commit_hash_for_target_datetime(
-        commits_df=commits_df,
+        commits_df=overall_commits_df,
         target_datetime=end_datetime,
         datetime_col=datetime_col,
     )
     all_metrics["meta_end_commit_hash"] = target_hex
 
-    # Previous year-end snapshot: the latest non-bot commit at or before this window's
-    # start, which is exactly what the previous window's row was built from.
+    # Previous year-end snapshot: the latest commit of any type at or before this
+    # window's start, which is exactly what the previous window's row was built from.
     new_code_base_commit: str | None = None
     if compute_ai_detection_metrics and compute_new_code_ai_detection and start_datetime:
-        prior_commits_df, _ = commits.normalize_changes_df_and_remove_bot_changes(
-            changes_df=parsed_commit_results.commit_summaries.filter(
-                pl.col(datetime_col) <= start_datetime_dt
-            ),
-            contributor_name_col=contributor_name_col,
-            contributor_email_col=contributor_email_col,
-            bot_name_indicators=bot_name_indicators,
-            bot_email_indicators=bot_email_indicators,
+        prior_commits_df = parsed_commit_results.commit_summaries.filter(
+            pl.col(datetime_col) <= start_datetime_dt
         )
         if len(prior_commits_df) > 0:
             new_code_base_commit = utils.get_commit_hash_for_target_datetime(
@@ -487,8 +548,14 @@ def analyze_repository(
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
     datetime_col: Literal["authored_datetime", "committed_datetime"] = "authored_datetime",
     period_spans: Iterable[str] = ("1 week", "4 weeks"),
-    bot_name_indicators: Iterable[str] | None = ("[bot]",),
-    bot_email_indicators: Iterable[str] | None = ("[bot]",),
+    bot_name_indicators: Iterable[str] | None = (
+        contribution_types.DEFAULT_BOT_NAME_INDICATORS
+    ),
+    bot_email_indicators: Iterable[str] | None = (
+        contribution_types.DEFAULT_BOT_EMAIL_INDICATORS
+    ),
+    deduplicate_contributor_identities: bool = True,
+    fuzzy_identity_threshold: float | None = 90,
     substantial_change_threshold_quantile: float = 0.1,
     compute_timeseries_metrics: bool = True,
     compute_contributor_stability_metrics: bool = True,
@@ -575,6 +642,8 @@ def analyze_repository(
                     period_spans=period_spans,
                     bot_name_indicators=bot_name_indicators,
                     bot_email_indicators=bot_email_indicators,
+                    deduplicate_contributor_identities=deduplicate_contributor_identities,
+                    fuzzy_identity_threshold=fuzzy_identity_threshold,
                     substantial_change_threshold_quantile=substantial_change_threshold_quantile,
                     compute_timeseries_metrics=compute_timeseries_metrics,
                     compute_contributor_stability_metrics=compute_contributor_stability_metrics,
@@ -620,6 +689,8 @@ def analyze_repository(
                 period_spans=period_spans,
                 bot_name_indicators=bot_name_indicators,
                 bot_email_indicators=bot_email_indicators,
+                deduplicate_contributor_identities=deduplicate_contributor_identities,
+                fuzzy_identity_threshold=fuzzy_identity_threshold,
                 substantial_change_threshold_quantile=substantial_change_threshold_quantile,
                 compute_timeseries_metrics=compute_timeseries_metrics,
                 compute_contributor_stability_metrics=compute_contributor_stability_metrics,
