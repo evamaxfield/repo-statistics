@@ -1555,6 +1555,14 @@ def compute_ai_commit_author_metrics(
     commits_df: pl.DataFrame,
     trailer_info: dict[str, CommitTrailerInfo],
 ) -> AICommitAuthorResults:
+    # Merge commits are excluded from every count
+    valid_hashes: set[str] = set(commits_df["commit_hash"].to_list())
+    non_merge_hashes = {
+        commit_hash
+        for commit_hash in valid_hashes
+        if commit_hash not in trailer_info or not trailer_info[commit_hash].is_merge
+    }
+
     # Part A: direct author/committer identity (DataFrame scan)
     author_counts: dict[str, int] = {}
     ai_associated_hashes: set[str] = set()
@@ -1563,15 +1571,16 @@ def compute_ai_commit_author_metrics(
         for col in (*_NAME_COLS, *_EMAIL_COLS):
             for s in identities:
                 expr = expr | pl.col(col).str.to_lowercase().str.contains(s, literal=True)
-        matched_hashes = commits_df.filter(expr)["commit_hash"].to_list()
+        matched_hashes = (
+            set(commits_df.filter(expr)["commit_hash"].to_list()) & non_merge_hashes
+        )
         author_counts[agent] = len(matched_hashes)
         ai_associated_hashes.update(matched_hashes)
 
     # Part B: Co-authored-by trailer and message markers
-    valid_hashes: set[str] = set(commits_df["commit_hash"].to_list())
     coauthor_counts: dict[str, int] = dict.fromkeys(AGENT_PATTERNS, 0)
     marker_counts: dict[str, int] = dict.fromkeys(COMMIT_MARKERS, 0)
-    for commit_hash in valid_hashes:
+    for commit_hash in non_merge_hashes:
         info = trailer_info.get(commit_hash)
         if info is None:
             continue
@@ -1582,11 +1591,7 @@ def compute_ai_commit_author_metrics(
         if info.agent_associated:
             ai_associated_hashes.add(commit_hash)
 
-    total_commits = sum(
-        1
-        for commit_hash in valid_hashes
-        if commit_hash not in trailer_info or not trailer_info[commit_hash].is_merge
-    )
+    total_commits = len(non_merge_hashes)
     total_ai = len(ai_associated_hashes)
     proportion = total_ai / total_commits if total_commits > 0 else None
 

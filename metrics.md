@@ -4,7 +4,7 @@
 
 Many metrics are scoped by **file type** (`{filetype}` = `total`, `programming`, `markup`, `prose`, `data`, `unknown`) and/or by **period span** (`{period}` = e.g., `1_week`, `4_weeks`).
 
-**Contribution types.** Every commit is typed by its author identity as `agent` (an identity matching an AI agent pattern, see section 14), `bot` (name matches `bot_name_indicators`, default `[bot]` and `copybara-service`, or email matches `bot_email_indicators`, default `[bot]`, `action@github.com`, `badger@gitter.im`, `@quantifiedcode.com`, `@waffle.io` and `copybara-worker@google.com`), or `human` (everything else), checked in that order because several agents carry `[bot]`. The committer is ignored, so a person merging on github.com stays `human` and Copybara-style export identities count as one human. Nothing is dropped: code-centric metrics use **overall** work, volume metrics also get per-type sets, and people-centric metrics use **humans only**.
+**Contribution types.** Every commit is typed by its author identity as `agent` (an identity matching an AI agent pattern, see section 14), `bot` (name matches `bot_name_indicators`, default `[bot]`, `copybara-service` and `pyup-bot`, or email matches `bot_email_indicators`, default `[bot]`, `action@github.com`, `badger@gitter.im`, `@quantifiedcode.com`, `@waffle.io`, `@pyup.io` and `copybara-worker@google.com`), or `human` (everything else), checked in that order because several agents carry `[bot]`. The committer is ignored, so a person merging on github.com stays `human` and Copybara-style export identities count as one human. Nothing is dropped: code-centric metrics use **overall** work, volume metrics also get per-type sets, and people-centric metrics use **humans only**.
 
 | Column naming | Meaning |
 |---|---|
@@ -96,8 +96,8 @@ Metrics examining how development effort and knowledge are distributed among con
 | `human_{filetype}_median_threshold_generalist_count` | Contributors above median files-touched threshold | Relative generalist count | Context-dependent | [12], [13] |
 | `human_{filetype}_twenty_fifth_percentile_threshold_specialist_count` | Contributors below 25th percentile files-touched threshold | Narrow specialist count | Context-dependent | [12], [13], [14] |
 | `human_{filetype}_twenty_fifth_percentile_threshold_generalist_count` | Contributors above 25th percentile files-touched threshold | Broad generalist count | Context-dependent | [12], [13] |
-| `human_diff_contributor_count` | Human contributors in the first 20% of commits (oldest first) but not the last 20% | Turnover may indicate challenges or natural evolution | Context-dependent | [15], [16], [17], [18] |
-| `human_same_contributor_count` | Human contributors present in both the first and last 20% of commits | Sustained engagement and knowledge retention | Higher = more continuity | [15], [16] |
+| `human_diff_contributor_count` | Human contributors in the first 20% of commits that changed at least one line (oldest first) but not the last 20% | Turnover may indicate challenges or natural evolution | Context-dependent | [15], [16], [17], [18] |
+| `human_same_contributor_count` | Human contributors present in both the first and last 20% of commits that changed at least one line | Sustained engagement and knowledge retention | Higher = more continuity | [15], [16] |
 
 ## 5. Repository Timeline Metrics
 
@@ -246,7 +246,7 @@ Halstead software science metrics and maintainability index, computed across Pyt
 
 Metrics detecting AI agent involvement in commits, via direct author/committer identity matching, `Co-authored-by:` trailer scanning, and commit message markers. Covers agents: `devin`, `sweep`, `copilot`, `codeium`, `claude`, `cursor`, `jules`, `gemini`, `aider`, `amp`.
 
-**Identity-only matching.** Each agent is matched by a small set of exact identity substrings (lowercased, literal) checked against the author/committer name and email fields and against each `Co-authored-by:` line: `devin-ai-integration[bot]` (devin), `sweep-ai[bot]` (sweep), `copilot-swe-agent[bot]` (copilot), `claude[bot]` and `noreply@anthropic.com` (claude), `cursor[bot]` and `cursoragent@cursor.com` (cursor), `google-labs-jules[bot]` (jules), `gemini-cli[bot]` (gemini), `(aider)` and `aider@aider.chat` (aider), `amp@ampcode.com` (amp), plus the placeholder identity `bot@example.com`, which is typed `agent` and counts toward the AI-associated total but has no per-agent column. Bare name tokens such as `devin` or `claude` are deliberately not matched, since they hit real people. `codeium` has no known commit identity, so its counts are always 0. Because the matching is identity-only, these counts are lower bounds on AI involvement.
+**Identity-only matching.** Each agent is matched by a small set of exact identity substrings (lowercased, literal) checked against the author/committer name and email fields and against each `Co-authored-by:` line: `devin-ai-integration[bot]` (devin), `sweep-ai[bot]` (sweep), `copilot-swe-agent[bot]` (copilot), `claude[bot]` and `noreply@anthropic.com` (claude), `cursor[bot]` and `cursoragent@cursor.com` (cursor), `google-labs-jules[bot]` (jules), `gemini-cli[bot]` (gemini), `(aider)` and `aider@aider.chat` (aider), `amp@ampcode.com` (amp), plus the placeholder identity `bot@example.com`, which is typed `agent` and counts toward the AI-associated total but has no per-agent column. Bare name tokens such as `devin` or `claude` are deliberately not matched, since they hit real people. `codeium` has no known commit identity, so its counts are always 0. Because the matching is identity-only, these counts are lower bounds on AI involvement. Merge commits are excluded from every count in this section.
 
 | Metric | Description | Sustainability Relationship | Directionality |
 |--------|-------------|---------------------------|----------------|
@@ -254,9 +254,9 @@ Metrics detecting AI agent involvement in commits, via direct author/committer i
 | `ai_commit_coauthored_{agent}_commit_count` | Commits with at least one `Co-authored-by:` trailer matching an AI agent identity (a commit counts once per agent, however many trailers match) | AI-assisted (human-initiated) commits | Metadata |
 | `ai_commit_marker_claude_code_commit_count` | Commits whose full message (subject and body) contains `Generated with [Claude Code]`, Claude Code's own commit/PR footer | AI-assisted commits that carry no matching identity | Metadata |
 | `ai_commit_marker_aider_commit_count` | Commits whose message starts with `aider: `, the prefix aider adds when it authors a commit | AI-assisted commits that carry no matching identity | Metadata |
-| `ai_commit_total_ai_associated_count` | Distinct commits associated with any AI agent (authored, co-authored or marked) | Overall AI involvement in development | Metadata |
-| `ai_commit_ai_associated_proportion` | AI-associated commits / overall non-merge commits (bot commits count in the denominator; merge commits do not) | Fraction of commits with AI involvement | Metadata |
-| `ai_commit_any_detected` | Whether any AI-associated commit was found | Boolean indicator of AI tool usage | Metadata |
+| `ai_commit_total_ai_associated_count` | Distinct non-merge commits associated with any AI agent (authored, co-authored or marked) | Overall AI involvement in development | Metadata |
+| `ai_commit_ai_associated_proportion` | AI-associated commits / overall non-merge commits (bot commits count in the denominator; merge commits count in neither numerator nor denominator) | Fraction of commits with AI involvement | Metadata |
+| `ai_commit_any_detected` | Whether any non-merge AI-associated commit was found | Boolean indicator of AI tool usage | Metadata |
 
 ## 15. AI Agent Configuration Metrics
 

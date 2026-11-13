@@ -396,6 +396,9 @@ def compute_contributor_change_metrics(
     contributor_name_col: Literal["author_name", "committer_name"] = "author_name",
 ) -> ContributorChangeMetrics:
 
+    # Same eligibility as the total contributor count
+    commits_df = commits_df.filter(pl.col("total_lines_changed") > 0)
+
     # Calculate commit count thresholds
     total_commits = len(commits_df)
     commit_threshold = int(total_commits * 0.2)

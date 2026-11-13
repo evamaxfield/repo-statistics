@@ -10,15 +10,16 @@ import polars as pl
 ###############################################################################
 
 # Copybara's export service account has no "[bot]" suffix
-DEFAULT_BOT_NAME_INDICATORS = ("[bot]", "copybara-service")
+DEFAULT_BOT_NAME_INDICATORS = ("[bot]", "copybara-service", "pyup-bot")
 # Service accounts: GitHub Actions, the Gitter badger (README PRs), Quantified Code, Waffle.io,
-# Copybara
+# PyUp, Copybara
 DEFAULT_BOT_EMAIL_INDICATORS = (
     "[bot]",
     "action@github.com",
     "badger@gitter.im",
     "@quantifiedcode.com",
     "@waffle.io",
+    "@pyup.io",
     "copybara-worker@google.com",
 )
 
